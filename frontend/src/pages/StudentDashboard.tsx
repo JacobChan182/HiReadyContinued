@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAnalytics } from '@/contexts/AnalyticsContext';
 import { mockLectures, mockCourses, enrichLecturesWithMockData } from '@/data/mockData';
-import { getStudentCourses } from '@/lib/api';
+import { getStudentCourses, getVideoStreamUrl } from '@/lib/api';
 import { Concept, Lecture, Course } from '@/types';
 import { 
   Play, Pause, SkipForward, Search, Sparkles, Clock, 
@@ -36,6 +36,8 @@ const StudentDashboard = () => {
   const [showSummary, setShowSummary] = useState(false);
   const [activeConcept, setActiveConcept] = useState<Concept | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [streamUrl, setStreamUrl] = useState<string | null>(null);
+  const [isLoadingStream, setIsLoadingStream] = useState(false);
 
   // Fetch student courses and lectures from API
   useEffect(() => {
@@ -166,6 +168,78 @@ const StudentDashboard = () => {
       }
     }
   };
+
+  // Extract video key from videoUrl (videoUrl format: ${PUBLIC_URL}/${key} or R2 endpoint)
+  const extractVideoKey = (videoUrl: string): string | null => {
+    if (!videoUrl) return null;
+    
+    try {
+      // Look for 'videos' in the path - this is always present in our video keys
+      const videosMatch = videoUrl.match(/\/videos\/.+$/);
+      if (videosMatch) {
+        // Remove leading slash to get the key
+        return videosMatch[0].substring(1);
+      }
+      
+      // If no 'videos' found, try to extract from URL path
+      // This handles edge cases where the URL structure might differ
+      const url = new URL(videoUrl);
+      const pathParts = url.pathname.split('/').filter(part => part);
+      
+      // Look for 'videos' in path parts
+      const videosIndex = pathParts.findIndex(part => part === 'videos');
+      if (videosIndex !== -1) {
+        return pathParts.slice(videosIndex).join('/');
+      }
+    } catch (error) {
+      // If URL parsing fails, try regex approach
+      const videosMatch = videoUrl.match(/\/videos\/.+$/);
+      if (videosMatch) {
+        return videosMatch[0].substring(1);
+      }
+    }
+    
+    return null;
+  };
+
+  // Fetch presigned stream URL when lecture changes
+  useEffect(() => {
+    const loadStreamUrl = async () => {
+      if (!selectedLecture?.videoUrl) {
+        setStreamUrl(null);
+        return;
+      }
+
+      setIsLoadingStream(true);
+      try {
+        const videoKey = extractVideoKey(selectedLecture.videoUrl);
+        
+        if (!videoKey) {
+          // Fallback to using the videoUrl directly if we can't extract key
+          console.warn('Could not extract video key, using videoUrl directly:', selectedLecture.videoUrl);
+          setStreamUrl(selectedLecture.videoUrl);
+          setIsLoadingStream(false);
+          return;
+        }
+
+        const response = await getVideoStreamUrl(videoKey);
+        if (response.success && response.streamUrl) {
+          setStreamUrl(response.streamUrl);
+        } else {
+          // Fallback to original videoUrl
+          setStreamUrl(selectedLecture.videoUrl);
+        }
+      } catch (error) {
+        console.error('Failed to load stream URL, using videoUrl directly:', error);
+        // Fallback to original videoUrl
+        setStreamUrl(selectedLecture.videoUrl);
+      } finally {
+        setIsLoadingStream(false);
+      }
+    };
+
+    loadStreamUrl();
+  }, [selectedLecture?.videoUrl, selectedLecture?.id]);
 
   // Reset previous time when lecture changes
   useEffect(() => {
@@ -427,13 +501,25 @@ const StudentDashboard = () => {
                 <Card className="glass-card overflow-hidden">
                   {/* Video */}
                   <div className="relative aspect-video bg-secondary">
-                    <video
-                      ref={videoRef}
-                      src={selectedLecture.videoUrl}
-                      className="w-full h-full object-cover"
-                      onTimeUpdate={handleTimeUpdate}
-                      onEnded={() => setIsPlaying(false)}
-                    />
+                    {isLoadingStream ? (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <div className="text-center">
+                          <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+                          <p className="text-sm text-muted-foreground">Loading video...</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <video
+                        ref={videoRef}
+                        src={streamUrl || selectedLecture.videoUrl}
+                        className="w-full h-full object-contain"
+                        onTimeUpdate={handleTimeUpdate}
+                        onEnded={() => setIsPlaying(false)}
+                        preload="metadata"
+                        playsInline
+                        crossOrigin="anonymous"
+                      />
+                    )}
                   
                   {/* Play overlay */}
                   {!isPlaying && (

@@ -158,4 +158,43 @@ router.post('/direct', async (req: Request, res: Response) => {
   }
 });
 
+// 4. Generate presigned URL for video playback (streaming)
+router.get('/stream/:videoKey', async (req: Request, res: Response) => {
+  try {
+    const { videoKey } = req.params;
+
+    if (!BUCKET_NAME) {
+      return res.status(500).json({ error: 'R2 bucket configuration missing' });
+    }
+
+    // Decode video key if it's URL encoded
+    const decodedKey = decodeURIComponent(videoKey);
+
+    // Generate presigned URL for GetObject (supports range requests for streaming)
+    const command = new GetObjectCommand({ 
+      Bucket: BUCKET_NAME, 
+      Key: decodedKey,
+      // ResponseContentType is optional, but can help with browser compatibility
+    });
+
+    // Generate presigned URL that expires in 1 hour (3600 seconds)
+    // Presigned URLs from R2/S3 support HTTP range requests automatically
+    const presignedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+
+    res.status(200).json({
+      success: true,
+      streamUrl: presignedUrl,
+      expiresIn: 3600,
+    });
+  } catch (error: any) {
+    console.error('Error generating stream URL:', error);
+    
+    if (error.name === 'NoSuchKey') {
+      return res.status(404).json({ error: 'Video not found' });
+    }
+    
+    res.status(500).json({ error: 'Failed to generate stream URL' });
+  }
+});
+
 export default router;

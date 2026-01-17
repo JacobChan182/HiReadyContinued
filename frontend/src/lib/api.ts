@@ -341,3 +341,25 @@ export const searchUsers = async (email: string) => {
     throw error;
   }
 };
+
+// Get presigned streaming URL for video playback
+export const getVideoStreamUrl = async (videoKey: string) => {
+  try {
+    const encodedKey = encodeURIComponent(videoKey);
+    const response = await fetch(`${API_URL}/upload/stream/${encodedKey}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to get video stream URL');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error getting video stream URL:', error);
+    throw error;
+  }
+};
