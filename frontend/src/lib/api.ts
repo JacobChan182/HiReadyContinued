@@ -202,3 +202,27 @@ export const getInstructorCourses = async (instructorId: string) => {
     throw error;
   }
 };
+
+// Get student courses and lectures
+export const getStudentCourses = async (userId: string) => {
+  try {
+    const response = await fetch(`${API_URL}/students/${userId}/courses`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        return { success: true, data: { courses: [], lectures: [] } };
+      }
+      throw new Error('Failed to fetch student courses');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching student courses:', error);
+    throw error;
+  }
+};

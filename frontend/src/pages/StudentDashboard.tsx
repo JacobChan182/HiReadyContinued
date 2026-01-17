@@ -2,50 +2,193 @@ import { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAnalytics } from '@/contexts/AnalyticsContext';
-import { mockLectures, mockCourses } from '@/data/mockData';
-import { Concept } from '@/types';
+import { mockLectures, mockCourses, enrichLecturesWithMockData } from '@/data/mockData';
+import { getStudentCourses } from '@/lib/api';
+import { Concept, Lecture, Course } from '@/types';
 import { 
   Play, Pause, SkipForward, Search, Sparkles, Clock, 
-  BookOpen, ChevronRight, Zap, LogOut, User
+  BookOpen, ChevronRight, Zap, LogOut, User, ChevronDown
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 const StudentDashboard = () => {
   const { user, logout } = useAuth();
   const { trackEvent, trackRewind } = useAnalytics();
   const videoRef = useRef<HTMLVideoElement>(null);
   const previousTimeRef = useRef<number>(0);
-  const [selectedLecture, setSelectedLecture] = useState(mockLectures[0]);
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [lectures, setLectures] = useState<Lecture[]>([]);
+  const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
+  const [selectedLecture, setSelectedLecture] = useState<Lecture | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSummary, setShowSummary] = useState(false);
   const [activeConcept, setActiveConcept] = useState<Concept | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const course = mockCourses.find(c => c.id === selectedLecture.courseId);
+  // Fetch student courses and lectures from API
+  useEffect(() => {
+    const fetchStudentData = async () => {
+      if (!user || user.role !== 'student') {
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        setIsLoading(true);
+        const response = await getStudentCourses(user.id);
+
+        if (response.success && response.data) {
+          const { courses: apiCourses, lectures: apiLectures } = response.data;
+
+          // Transform and enrich lectures with mock data (for concepts, duration, etc.)
+          const enrichedLectures = enrichLecturesWithMockData(apiLectures || []);
+
+          // Determine which courses and lectures to use
+          const finalCourses = (apiCourses && apiCourses.length > 0) ? apiCourses : mockCourses;
+          const finalLectures = (enrichedLectures.length > 0) ? enrichedLectures : mockLectures;
+
+          setCourses(finalCourses);
+          setLectures(finalLectures);
+
+          // Set initial course selection
+          if (finalCourses.length > 0) {
+            const firstCourseId = finalCourses[0].id;
+            setSelectedCourseId(firstCourseId);
+            
+            // Set initial lecture selection for the first course
+            const firstCourseLectures = finalLectures.filter(l => l.courseId === firstCourseId);
+            if (firstCourseLectures.length > 0) {
+              setSelectedLecture(firstCourseLectures[0]);
+            } else if (finalLectures.length > 0) {
+              setSelectedLecture(finalLectures[0]);
+            }
+          }
+        } else {
+          // Fallback to mock data
+          setCourses(mockCourses);
+          setLectures(mockLectures);
+          if (mockCourses.length > 0) {
+            setSelectedCourseId(mockCourses[0].id);
+            const firstCourseLectures = mockLectures.filter(l => l.courseId === mockCourses[0].id);
+            if (firstCourseLectures.length > 0) {
+              setSelectedLecture(firstCourseLectures[0]);
+            } else if (mockLectures.length > 0) {
+              setSelectedLecture(mockLectures[0]);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch student courses, using mock data:', error);
+        // Fallback to mock data
+        setCourses(mockCourses);
+        setLectures(mockLectures);
+        if (mockCourses.length > 0 && !selectedCourseId) {
+          setSelectedCourseId(mockCourses[0].id);
+        }
+        if (mockLectures.length > 0 && !selectedLecture) {
+          setSelectedLecture(mockLectures[0]);
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchStudentData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  // Get user's assigned courses
+  const userCourses = courses;
+
+  // Get selected course
+  const course = selectedCourseId
+    ? courses.find(c => c.id === selectedCourseId)
+    : userCourses.length > 0
+      ? userCourses[0]
+      : selectedLecture
+        ? courses.find(c => c.id === selectedLecture.courseId)
+        : null;
+
+  // Filter lectures by selected course
+  const availableLectures = course
+    ? lectures.filter(l => l.courseId === course.id)
+    : lectures;
+
+  // Update selected lecture when course changes
+  useEffect(() => {
+    if (course && availableLectures.length > 0) {
+      // Check if current lecture belongs to selected course
+      const currentLectureInCourse = selectedLecture 
+        ? availableLectures.find(l => l.id === selectedLecture.id)
+        : null;
+      if (!currentLectureInCourse) {
+        // Current lecture doesn't belong to selected course, switch to first lecture in course
+        setSelectedLecture(availableLectures[0]);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [course?.id]);
+
+  // Update selected lecture when course changes
+  useEffect(() => {
+    if (course && availableLectures.length > 0) {
+      // Check if current lecture belongs to selected course
+      const currentLectureInCourse = selectedLecture 
+        ? availableLectures.find(l => l.id === selectedLecture.id)
+        : null;
+      if (!currentLectureInCourse) {
+        // Current lecture doesn't belong to selected course, switch to first lecture in course
+        setSelectedLecture(availableLectures[0]);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [course?.id]);
+
+  const handleSwitchCourse = (courseId: string) => {
+    setSelectedCourseId(courseId);
+    const newCourse = courses.find(c => c.id === courseId);
+    if (newCourse) {
+      const firstLecture = lectures.find(l => l.courseId === courseId);
+      if (firstLecture) {
+        setSelectedLecture(firstLecture);
+      }
+    }
+  };
 
   // Reset previous time when lecture changes
   useEffect(() => {
-    previousTimeRef.current = 0;
-    setCurrentTime(0);
-  }, [selectedLecture.id]);
+    if (selectedLecture) {
+      previousTimeRef.current = 0;
+      setCurrentTime(0);
+    }
+  }, [selectedLecture?.id]);
 
   // Track current concept based on video time
   useEffect(() => {
-    const concept = selectedLecture.concepts.find(
-      c => currentTime >= c.startTime && currentTime < c.endTime
-    );
-    if (concept && concept.id !== activeConcept?.id) {
-      setActiveConcept(concept);
+    if (selectedLecture) {
+      const concept = selectedLecture.concepts.find(
+        c => currentTime >= c.startTime && currentTime < c.endTime
+      );
+      if (concept && concept.id !== activeConcept?.id) {
+        setActiveConcept(concept);
+      }
     }
   }, [currentTime, selectedLecture, activeConcept]);
 
   const handlePlayPause = () => {
-    if (videoRef.current) {
+    if (videoRef.current && selectedLecture) {
       if (isPlaying) {
         videoRef.current.pause();
         trackEvent('pause', selectedLecture.id, activeConcept?.id);
@@ -58,7 +201,7 @@ const StudentDashboard = () => {
   };
 
   const jumpToConcept = (concept: Concept) => {
-    if (videoRef.current) {
+    if (videoRef.current && selectedLecture) {
       const previousTime = previousTimeRef.current;
       const newTime = concept.startTime;
       
@@ -95,7 +238,7 @@ const StudentDashboard = () => {
   };
 
   const handleTimeUpdate = () => {
-    if (videoRef.current) {
+    if (videoRef.current && selectedLecture) {
       const newTime = videoRef.current.currentTime;
       const previousTime = previousTimeRef.current;
       
@@ -136,10 +279,12 @@ const StudentDashboard = () => {
     }
   };
 
-  const filteredConcepts = selectedLecture.concepts.filter(c =>
-    c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.summary.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredConcepts = selectedLecture
+    ? selectedLecture.concepts.filter(c =>
+        c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        c.summary.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : [];
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -148,8 +293,10 @@ const StudentDashboard = () => {
   };
 
   const generateSummary = () => {
-    setShowSummary(true);
-    trackEvent('seek', selectedLecture.id, undefined, { action: 'generate-summary' });
+    if (selectedLecture) {
+      setShowSummary(true);
+      trackEvent('seek', selectedLecture.id, undefined, { action: 'generate-summary' });
+    }
   };
 
   return (
@@ -178,23 +325,115 @@ const StudentDashboard = () => {
       </header>
 
       <main className="container mx-auto px-4 py-6">
-        <div className="grid lg:grid-cols-3 gap-6">
-          {/* Video Player Section */}
-          <div className="lg:col-span-2 space-y-4">
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-            >
-              <Card className="glass-card overflow-hidden">
-                {/* Video */}
-                <div className="relative aspect-video bg-secondary">
-                  <video
-                    ref={videoRef}
-                    src={selectedLecture.videoUrl}
-                    className="w-full h-full object-cover"
-                    onTimeUpdate={handleTimeUpdate}
-                    onEnded={() => setIsPlaying(false)}
-                  />
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="text-center">
+              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+              <p className="text-muted-foreground">Loading courses...</p>
+            </div>
+          </div>
+        ) : courses.length === 0 ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="text-center">
+              <BookOpen className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+              <h3 className="text-lg font-semibold mb-2">No courses assigned</h3>
+              <p className="text-muted-foreground">You haven't been assigned to any courses yet.</p>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Course Header */}
+            {course && userCourses.length > 1 && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-6"
+          >
+            <Card className="glass-card p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" className="h-auto p-0 hover:bg-transparent">
+                        <div className="text-left">
+                          <p className="text-sm text-muted-foreground">{course.code}</p>
+                          <h2 className="text-2xl font-bold">{course.name}</h2>
+                        </div>
+                        <ChevronDown className="w-4 h-4 ml-2 text-muted-foreground" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="w-64">
+                      {userCourses.map((c) => (
+                        <DropdownMenuItem
+                          key={c.id}
+                          onClick={() => handleSwitchCourse(c.id)}
+                          className={c.id === course.id ? 'bg-primary/10' : ''}
+                        >
+                          <div className="flex flex-col">
+                            <span className="font-medium">{c.code}</span>
+                            <span className="text-xs text-muted-foreground">{c.name}</span>
+                          </div>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+                <Badge variant="outline">
+                  {availableLectures.length} lecture{availableLectures.length !== 1 ? 's' : ''}
+                </Badge>
+              </div>
+            </Card>
+          </motion.div>
+        )}
+
+        {/* Course Header - Single Course or No Switcher */}
+        {course && userCourses.length <= 1 && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-6"
+          >
+            <Card className="glass-card p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">{course.code}</p>
+                  <h2 className="text-2xl font-bold">{course.name}</h2>
+                </div>
+                <Badge variant="outline">
+                  {availableLectures.length} lecture{availableLectures.length !== 1 ? 's' : ''}
+                </Badge>
+              </div>
+            </Card>
+          </motion.div>
+        )}
+
+        {!selectedLecture ? (
+          <div className="text-center py-12">
+            <p className="text-muted-foreground mb-4">No lectures available</p>
+            <p className="text-sm text-muted-foreground">
+              {course 
+                ? "This course doesn't have any lectures yet."
+                : "You haven't been assigned to any courses yet."}
+            </p>
+          </div>
+        ) : (
+          <div className="grid lg:grid-cols-3 gap-6">
+            {/* Video Player Section */}
+            <div className="lg:col-span-2 space-y-4">
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+              >
+                <Card className="glass-card overflow-hidden">
+                  {/* Video */}
+                  <div className="relative aspect-video bg-secondary">
+                    <video
+                      ref={videoRef}
+                      src={selectedLecture.videoUrl}
+                      className="w-full h-full object-cover"
+                      onTimeUpdate={handleTimeUpdate}
+                      onEnded={() => setIsPlaying(false)}
+                    />
                   
                   {/* Play overlay */}
                   {!isPlaying && (
@@ -275,7 +514,6 @@ const StudentDashboard = () => {
             <Card className="glass-card p-4">
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="text-sm text-muted-foreground">{course?.code}</p>
                   <h1 className="text-xl font-semibold">{selectedLecture.title}</h1>
                 </div>
                 <Button onClick={generateSummary} className="gradient-bg glow">
@@ -376,7 +614,7 @@ const StudentDashboard = () => {
             <Card className="glass-card p-4">
               <h3 className="font-semibold mb-3">Other Lectures</h3>
               <div className="space-y-2">
-                {mockLectures.filter(l => l.id !== selectedLecture.id).map(lecture => (
+                {availableLectures.filter(l => selectedLecture && l.id !== selectedLecture.id).map(lecture => (
                   <div
                     key={lecture.id}
                     onClick={() => setSelectedLecture(lecture)}
@@ -388,10 +626,18 @@ const StudentDashboard = () => {
                     </p>
                   </div>
                 ))}
+                {availableLectures.filter(l => selectedLecture && l.id !== selectedLecture.id).length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    No other lectures in this course
+                  </p>
+                )}
               </div>
             </Card>
           </div>
         </div>
+        )}
+          </>
+        )}
       </main>
     </div>
   );
