@@ -1,3 +1,4 @@
+backboard-sdk==1.4.7
 blinker==1.9.0
 click==8.3.1
 Flask==3.1.2
@@ -6,3 +7,8 @@ itsdangerous==2.2.0
 Jinja2==3.1.6
 MarkupSafe==3.0.3
 Werkzeug==3.1.5
+asgiref==3.8.1
+twelvelabs==1.2.0b0
+python-dotenv>=1.0.0
+pymongo>=4.0.0
+dnspython>=2.0.0
