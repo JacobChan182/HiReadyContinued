@@ -6,10 +6,30 @@ import { componentTagger } from "lovable-tagger";
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
   server: {
-    host: "::",
-    port: 8080,
+    host: "127.0.0.1",
+    port: 5173,
     hmr: {
       overlay: false,
+    },
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:5000',
+        changeOrigin: true,
+        secure: false,
+        ws: false,
+        // no rewrite: keep `/api/...` unchanged
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, _res) => {
+            console.log('[proxy] error', err);
+          });
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            console.log('[proxy] =>', req.method, req.url);
+          });
+          proxy.on('proxyRes', (proxyRes, req, _res) => {
+            console.log('[proxy] <=', proxyRes.statusCode, req.url);
+          });
+        },
+      },
     },
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
@@ -18,4 +38,14 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  // Add this section:
+  // server: {
+  //   proxy: {
+  //     '/api': {
+  //       target: 'http://127.0.0.1:5000',
+  //       changeOrigin: true,
+  //       secure: false,
+  //     },
+  //   },
+  // },
 }));

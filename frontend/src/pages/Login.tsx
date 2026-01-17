@@ -19,6 +19,13 @@ const Login = () => {
     login(selectedRole);
   };
 
+    // This will now be automatically routed to http://localhost:5000/api/hello
+  const fetchData = async () => {
+    const response = await fetch('/api/hello'); 
+    const data = await response.json();
+    console.log(data);
+  };
+
   const roles = [
     {
       id: 'student' as UserRole,
@@ -38,6 +45,7 @@ const Login = () => {
 
   return (
     <div className="min-h-screen gradient-dark-bg flex items-center justify-center p-4">
+      fetchData();
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
