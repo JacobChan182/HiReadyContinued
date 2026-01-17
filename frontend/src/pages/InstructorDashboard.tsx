@@ -11,7 +11,7 @@ import {
 } from 'recharts';
 import { 
   Zap, LogOut, Users, TrendingUp, AlertTriangle, BookOpen, 
-  BarChart2, PieChart as PieIcon, Activity, Shield, Eye, Plus, ArrowRight
+  BarChart2, PieChart as PieIcon, Activity, Shield, Eye, Plus, ArrowRight, Settings
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -37,6 +37,9 @@ const InstructorDashboard = () => {
   const [selectedLecture, setSelectedLecture] = useState<Lecture | null>(null);
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
   const [isCourseDialogOpen, setIsCourseDialogOpen] = useState(false);
+  const [isCourseActionDialogOpen, setIsCourseActionDialogOpen] = useState(false);
+  const [clickedCourseId, setClickedCourseId] = useState<string | null>(null);
+  const [isCourseSettingsOpen, setIsCourseSettingsOpen] = useState(false);
   const [newCourseCode, setNewCourseCode] = useState('');
   const [newCourseName, setNewCourseName] = useState('');
   const [studentEmails, setStudentEmails] = useState('');
@@ -150,6 +153,29 @@ const InstructorDashboard = () => {
       setSelectedLecture(null);
     }
     setIsCourseDialogOpen(false);
+    setIsCourseActionDialogOpen(false);
+  };
+
+  const handleCourseClick = (courseId: string) => {
+    if (courseId === course?.id) {
+      // If clicking on the current course, just switch to it directly
+      handleSwitchCourse(courseId);
+    } else {
+      // For other courses, show the action dialog
+      setClickedCourseId(courseId);
+      setIsCourseActionDialogOpen(true);
+    }
+  };
+
+  const handleGoToCourse = () => {
+    if (clickedCourseId) {
+      handleSwitchCourse(clickedCourseId);
+    }
+  };
+
+  const handleOpenCourseSettings = () => {
+    setIsCourseActionDialogOpen(false);
+    setIsCourseSettingsOpen(true);
   };
 
   const handleCreateCourse = async () => {
@@ -704,7 +730,7 @@ const InstructorDashboard = () => {
                   courses.map((c) => (
                     <motion.button
                       key={c.id}
-                      onClick={() => handleSwitchCourse(c.id)}
+                      onClick={() => handleCourseClick(c.id)}
                       className={`w-full p-4 rounded-lg border text-left transition-all ${
                         c.id === course?.id
                           ? 'border-primary bg-primary/10'
@@ -779,6 +805,90 @@ const InstructorDashboard = () => {
               </div>
             </TabsContent>
           </Tabs>
+        </DialogContent>
+      </Dialog>
+
+      {/* Course Action Dialog */}
+      <Dialog open={isCourseActionDialogOpen} onOpenChange={setIsCourseActionDialogOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>Course Options</DialogTitle>
+            <DialogDescription>
+              Choose an action for {clickedCourseId ? courses.find(c => c.id === clickedCourseId)?.name : 'this course'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-4">
+            <Button
+              onClick={handleGoToCourse}
+              className="w-full justify-start"
+              variant="outline"
+            >
+              <BookOpen className="w-4 h-4 mr-2" />
+              Go to Course
+            </Button>
+            <Button
+              onClick={handleOpenCourseSettings}
+              className="w-full justify-start"
+              variant="outline"
+            >
+              <Settings className="w-4 h-4 mr-2" />
+              Course Settings
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Course Settings Dialog */}
+      <Dialog open={isCourseSettingsOpen} onOpenChange={setIsCourseSettingsOpen}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>Course Settings</DialogTitle>
+            <DialogDescription>
+              Manage settings for {clickedCourseId ? courses.find(c => c.id === clickedCourseId)?.name : 'this course'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {clickedCourseId && (
+              <div className="space-y-4">
+                <div>
+                  <Label>Course Code</Label>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {courses.find(c => c.id === clickedCourseId)?.code}
+                  </p>
+                </div>
+                <div>
+                  <Label>Course Name</Label>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {courses.find(c => c.id === clickedCourseId)?.name}
+                  </p>
+                </div>
+                <div>
+                  <Label>Number of Lectures</Label>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {courses.find(c => c.id === clickedCourseId)?.lectureIds.length || 0}
+                  </p>
+                </div>
+                <div className="pt-4 border-t">
+                  <p className="text-sm text-muted-foreground">
+                    Course settings functionality coming soon. You can manage course details, students, and other settings here.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="flex justify-end gap-2 pt-4">
+            <Button variant="outline" onClick={() => setIsCourseSettingsOpen(false)}>
+              Close
+            </Button>
+            <Button onClick={() => {
+              setIsCourseSettingsOpen(false);
+              if (clickedCourseId) {
+                handleSwitchCourse(clickedCourseId);
+              }
+            }}>
+              Go to Course
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
