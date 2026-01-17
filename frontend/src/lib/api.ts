@@ -152,7 +152,7 @@ export const getInstructorLectures = async (instructorId: string) => {
 };
 
 // Create a new course
-export const createCourse = async (courseId: string, courseName: string, instructorId: string) => {
+export const createCourse = async (courseId: string, courseName: string, instructorId: string, studentEmails?: string[]) => {
   try {
     const response = await fetch(`${API_URL}/courses`, {
       method: 'POST',
@@ -163,6 +163,7 @@ export const createCourse = async (courseId: string, courseName: string, instruc
         courseId,
         courseName,
         instructorId,
+        studentEmails: studentEmails || [],
       }),
     });
 

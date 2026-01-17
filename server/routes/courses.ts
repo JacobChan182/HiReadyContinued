@@ -1,12 +1,14 @@
 import express, { Request, Response } from 'express';
 import { Course } from '../models/Course';
+import { User } from '../models/User';
+import { Student } from '../models/Student';
 
 const router = express.Router();
 
 // Create a new course
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { courseId, courseName, instructorId } = req.body;
+    const { courseId, courseName, instructorId, studentEmails } = req.body;
 
     if (!courseId || !courseName || !instructorId) {
       return res.status(400).json({ error: 'Missing required fields: courseId, courseName, instructorId' });
@@ -27,7 +29,59 @@ router.post('/', async (req: Request, res: Response) => {
 
     await newCourse.save();
 
-    res.status(201).json({ success: true, data: newCourse });
+    // Assign students to course if emails provided
+    const assignedStudents: string[] = [];
+    const notFoundEmails: string[] = [];
+    
+    if (studentEmails && Array.isArray(studentEmails) && studentEmails.length > 0) {
+      for (const email of studentEmails) {
+        try {
+          // Find user by email
+          const user = await User.findOne({ email: email.toLowerCase().trim(), role: 'student' });
+          
+          if (user) {
+            // Update User model to include courseId
+            if (!user.courseIds.includes(courseId)) {
+              user.courseIds.push(courseId);
+              await user.save();
+            }
+
+            // Update or create Student model
+            let student = await Student.findOne({ userId: user._id.toString() });
+            
+            if (!student) {
+              // Create new student record
+              student = new Student({
+                userId: user._id.toString(),
+                pseudonymId: user.pseudonymId,
+                courseIds: [courseId],
+                lectures: [],
+              });
+            } else {
+              // Add courseId if not already present
+              if (!student.courseIds.includes(courseId)) {
+                student.courseIds.push(courseId);
+              }
+            }
+            
+            await student.save();
+            assignedStudents.push(email);
+          } else {
+            notFoundEmails.push(email);
+          }
+        } catch (error) {
+          console.error(`Error assigning student ${email} to course:`, error);
+          notFoundEmails.push(email);
+        }
+      }
+    }
+
+    res.status(201).json({ 
+      success: true, 
+      data: newCourse,
+      assignedStudents,
+      notFoundEmails: notFoundEmails.length > 0 ? notFoundEmails : undefined,
+    });
   } catch (error: any) {
     console.error('Error creating course:', error);
     

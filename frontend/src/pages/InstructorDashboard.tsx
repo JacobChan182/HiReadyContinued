@@ -4,6 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { mockLectures, mockCourses, calculateConceptInsights, calculateClusterInsights, mockStudents, transformInstructorLectures, enrichLecturesWithMockData } from '@/data/mockData';
 import { getInstructorLectures, createCourse } from '@/lib/api';
 import { Lecture } from '@/types';
+import { useToast } from '@/hooks/use-toast';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   AreaChart, Area, PieChart, Pie, Cell, Legend
@@ -31,12 +32,14 @@ const CHART_COLORS = [
 
 const InstructorDashboard = () => {
   const { user, logout } = useAuth();
+  const { toast } = useToast();
   const [lectures, setLectures] = useState<Lecture[]>(mockLectures);
   const [selectedLecture, setSelectedLecture] = useState<Lecture | null>(null);
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
   const [isCourseDialogOpen, setIsCourseDialogOpen] = useState(false);
   const [newCourseCode, setNewCourseCode] = useState('');
   const [newCourseName, setNewCourseName] = useState('');
+  const [studentEmails, setStudentEmails] = useState('');
   const [courses, setCourses] = useState(mockCourses);
   const [isLoadingLectures, setIsLoadingLectures] = useState(true);
 
@@ -155,8 +158,44 @@ const InstructorDashboard = () => {
     }
 
     try {
+      // Parse email list (split by comma, newline, or semicolon, and trim)
+      const emailList = studentEmails
+        .split(/[,\n;]/)
+        .map(email => email.trim())
+        .filter(email => email.length > 0);
+
       // Create course in database
-      await createCourse(newCourseCode.trim(), newCourseName.trim(), user.id);
+      const response = await createCourse(newCourseCode.trim(), newCourseName.trim(), user.id, emailList);
+      
+      // Show assignment results
+      if (emailList.length > 0) {
+        const assignedCount = response.assignedStudents?.length || 0;
+        const notFoundCount = response.notFoundEmails?.length || 0;
+        
+        if (assignedCount > 0 && notFoundCount === 0) {
+          toast({
+            title: "Course created successfully",
+            description: `Assigned ${assignedCount} student${assignedCount !== 1 ? 's' : ''} to the course.`,
+          });
+        } else if (assignedCount > 0 && notFoundCount > 0) {
+          toast({
+            title: "Course created with partial assignments",
+            description: `Assigned ${assignedCount} student${assignedCount !== 1 ? 's' : ''}. ${notFoundCount} email${notFoundCount !== 1 ? 's' : ''} not found.`,
+            variant: "default",
+          });
+        } else if (notFoundCount > 0) {
+          toast({
+            title: "Course created, but no students assigned",
+            description: `${notFoundCount} email${notFoundCount !== 1 ? 's' : ''} not found. Please verify the email addresses.`,
+            variant: "destructive",
+          });
+        }
+      } else {
+        toast({
+          title: "Course created successfully",
+          description: "You can assign students later.",
+        });
+      }
       
       // Update local state
       const newCourse = {
@@ -172,6 +211,7 @@ const InstructorDashboard = () => {
       setSelectedLecture(null); // No lectures yet
       setNewCourseCode('');
       setNewCourseName('');
+      setStudentEmails('');
       setIsCourseDialogOpen(false);
     } catch (error) {
       console.error('Failed to create course:', error);
@@ -186,6 +226,7 @@ const InstructorDashboard = () => {
       setCourses([...courses, newCourse]);
       setNewCourseCode('');
       setNewCourseName('');
+      setStudentEmails('');
       setIsCourseDialogOpen(false);
     }
   };
@@ -712,6 +753,20 @@ const InstructorDashboard = () => {
                     value={newCourseName}
                     onChange={(e) => setNewCourseName(e.target.value)}
                   />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="student-emails">Assign Students (Optional)</Label>
+                  <textarea
+                    id="student-emails"
+                    className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    placeholder="Enter email addresses, one per line or separated by commas&#10;e.g., student1@example.com&#10;student2@example.com"
+                    value={studentEmails}
+                    onChange={(e) => setStudentEmails(e.target.value)}
+                    rows={4}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Enter employee email addresses to automatically assign them to this course
+                  </p>
                 </div>
                 <Button
                   onClick={handleCreateCourse}
