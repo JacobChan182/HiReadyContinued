@@ -226,3 +226,118 @@ export const getStudentCourses = async (userId: string) => {
     throw error;
   }
 };
+
+// Update course information
+export const updateCourse = async (courseId: string, courseName?: string, newCourseId?: string) => {
+  try {
+    const response = await fetch(`${API_URL}/courses/${courseId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        courseName,
+        newCourseId,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to update course');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error updating course:', error);
+    throw error;
+  }
+};
+
+// Get students enrolled in a course
+export const getCourseStudents = async (courseId: string) => {
+  try {
+    const response = await fetch(`${API_URL}/courses/${courseId}/students`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch course students');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching course students:', error);
+    throw error;
+  }
+};
+
+// Add students to a course
+export const addStudentsToCourse = async (courseId: string, studentEmails: string[]) => {
+  try {
+    const response = await fetch(`${API_URL}/courses/${courseId}/students`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        studentEmails,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to add students to course');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error adding students to course:', error);
+    throw error;
+  }
+};
+
+// Remove a student from a course
+export const removeStudentFromCourse = async (courseId: string, userId: string) => {
+  try {
+    const response = await fetch(`${API_URL}/courses/${courseId}/students/${userId}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to remove student from course');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error removing student from course:', error);
+    throw error;
+  }
+};
+
+// Search for users by email
+export const searchUsers = async (email: string) => {
+  try {
+    const response = await fetch(`${API_URL}/courses/search/users?email=${encodeURIComponent(email)}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to search users');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error searching users:', error);
+    throw error;
+  }
+};
