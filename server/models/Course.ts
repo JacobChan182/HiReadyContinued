@@ -30,13 +30,13 @@ const StudentRewindEventsSchema = new Schema({
 });
 
 const LectureSchema = new Schema<ILecture>({
-  lectureId: { type: String, required: true },
+  lectureId: { type: String, required: true }, // Not unique - same lectureId can exist in different courses
   lectureTitle: { type: String, required: true },
   courseId: { type: String, required: true },
   videoUrl: { type: String },
   createdAt: { type: Date, default: Date.now },
   studentRewindEvents: { type: [StudentRewindEventsSchema], default: [] },
-});
+}, { _id: false }); // Disable _id for subdocuments
 
 const CourseSchema = new Schema<ICourse>({
   courseId: { type: String, required: true, unique: true },

@@ -21,6 +21,13 @@ export const connectDB = async () => {
         await collection.dropIndex('userId_1');
         console.log('✅ Dropped old userId index from courses collection');
       }
+      
+      // Drop lectures.lectureId unique index if it exists (leftover from Lecturer model)
+      const lectureIdIndex = indexes.find(idx => idx.key && idx.key['lectures.lectureId']);
+      if (lectureIdIndex) {
+        await collection.dropIndex('lectures.lectureId_1');
+        console.log('✅ Dropped old lectures.lectureId index from courses collection');
+      }
     } catch (error) {
       // Index might not exist, which is fine
       if ((error as any).code !== 27) { // 27 = IndexNotFound

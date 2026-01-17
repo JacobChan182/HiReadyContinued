@@ -40,6 +40,15 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
     
+    // Handle duplicate key error for old lectures.lectureId index
+    if (error.code === 11000 && error.keyPattern?.['lectures.lectureId']) {
+      console.error('⚠️  Old lectures.lectureId index detected. Please restart the server to clean up indexes.');
+      return res.status(500).json({ 
+        error: 'Database index conflict. Please restart the server to fix this issue.',
+        details: 'The database has an old index on lectures.lectureId that needs to be removed. Restarting the server will automatically fix this.'
+      });
+    }
+    
     // Handle duplicate courseId error
     if (error.code === 11000 && error.keyPattern?.courseId) {
       return res.status(409).json({ error: 'Course with this ID already exists' });
@@ -84,7 +93,9 @@ router.get('/:courseId', async (req: Request, res: Response) => {
 // Add a lecture to a course
 router.post('/:courseId/lectures', async (req: Request, res: Response) => {
   try {
-    const { courseId } = req.params;
+    const courseId = Array.isArray(req.params.courseId) 
+      ? req.params.courseId[0] 
+      : req.params.courseId;
     const { lectureId, lectureTitle, videoUrl } = req.body;
 
     if (!lectureId || !lectureTitle) {
@@ -122,15 +133,21 @@ router.post('/:courseId/lectures', async (req: Request, res: Response) => {
 // Get all lectures for an instructor (aggregated from all their courses)
 router.get('/instructor/:instructorId/lectures', async (req: Request, res: Response) => {
   try {
-    const { instructorId } = req.params;
+    const instructorId = Array.isArray(req.params.instructorId) 
+      ? req.params.instructorId[0] 
+      : req.params.instructorId;
 
     const courses = await Course.find({ instructorId });
 
     // Aggregate all lectures from all courses
     const allLectures = courses.flatMap(course => 
       course.lectures.map(lecture => ({
-        ...lecture.toObject(),
+        lectureId: lecture.lectureId,
+        lectureTitle: lecture.lectureTitle,
         courseId: course.courseId,
+        videoUrl: lecture.videoUrl,
+        createdAt: lecture.createdAt,
+        studentRewindEvents: lecture.studentRewindEvents,
         courseName: course.courseName,
       }))
     );
