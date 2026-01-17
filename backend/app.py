@@ -6,7 +6,22 @@ from dotenv import load_dotenv
 from backboard import BackboardClient
 import asyncio
 
+# Load environment variables from .env file
 load_dotenv()
+
+@app.route('/api/backboard/chat', methods=['POST'])
+def backboard_chat():
+    data = request.json
+    api_key = os.getenv("BACKBOARD_API_KEY")
+    if not api_key:
+        return {"status": "error", "message": "Missing BACKBOARD_API_KEY env var"}, 500
+    
+    client = BackboardClient(api_key=api_key)
+
+    assistant = client.create_assistant(
+        name="NoMoreTears Assistant",
+        system_message="You are a helpful assistant for the NoMoreTears application."
+    )
 
 def create_app():
     app = Flask(__name__)
