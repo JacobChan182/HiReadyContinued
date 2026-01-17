@@ -1,5 +1,51 @@
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
+// Sign up
+export const signup = async (email: string, password: string, role: 'student' | 'instructor') => {
+  try {
+    const response = await fetch(`${API_URL}/auth/signup`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email, password, role }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to sign up');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Signup error:', error);
+    throw error;
+  }
+};
+
+// Sign in
+export const signin = async (email: string, password: string) => {
+  try {
+    const response = await fetch(`${API_URL}/auth/signin`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email, password }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to sign in');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Signin error:', error);
+    throw error;
+  }
+};
+
 // Track rewind event
 export const trackRewindEvent = async (
   userId: string,

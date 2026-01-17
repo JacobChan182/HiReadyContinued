@@ -9,6 +9,7 @@ dotenv.config({ path: envPath });
 
 import connectDB from './db';
 import analyticsRoutes from './routes/analytics';
+import authRoutes from './routes/auth';
 import loginsRoutes from './routes/logins';
 import lecturersRoutes from './routes/lecturers';
 import studentsRoutes from './routes/students';
@@ -26,6 +27,7 @@ connectDB().catch(console.error);
 
 // Routes
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/auth', authRoutes);
 app.use('/api/logins', loginsRoutes);
 app.use('/api/lecturers', lecturersRoutes);
 app.use('/api/students', studentsRoutes);
