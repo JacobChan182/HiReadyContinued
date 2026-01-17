@@ -32,6 +32,7 @@ const StudentDashboard = () => {
   const [selectedLecture, setSelectedLecture] = useState<Lecture | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
+  const [videoDuration, setVideoDuration] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSummary, setShowSummary] = useState(false);
   const [activeConcept, setActiveConcept] = useState<Concept | null>(null);
@@ -241,11 +242,12 @@ const StudentDashboard = () => {
     loadStreamUrl();
   }, [selectedLecture?.videoUrl, selectedLecture?.id]);
 
-  // Reset previous time when lecture changes
+  // Reset previous time and duration when lecture changes
   useEffect(() => {
     if (selectedLecture) {
       previousTimeRef.current = 0;
       setCurrentTime(0);
+      setVideoDuration(0); // Reset duration, will be set when video metadata loads
     }
   }, [selectedLecture?.id]);
 
@@ -514,6 +516,11 @@ const StudentDashboard = () => {
                         src={streamUrl || selectedLecture.videoUrl}
                         className="w-full h-full object-contain"
                         onTimeUpdate={handleTimeUpdate}
+                        onLoadedMetadata={() => {
+                          if (videoRef.current) {
+                            setVideoDuration(videoRef.current.duration || 0);
+                          }
+                        }}
                         onEnded={() => setIsPlaying(false)}
                         preload="metadata"
                         playsInline
@@ -564,13 +571,13 @@ const StudentDashboard = () => {
                     
                     <div className="flex-1">
                       <Progress 
-                        value={(currentTime / selectedLecture.duration) * 100}
+                        value={videoDuration > 0 ? (currentTime / videoDuration) * 100 : 0}
                         className="h-2"
                       />
                     </div>
                     
                     <span className="text-sm font-mono text-muted-foreground">
-                      {formatTime(currentTime)} / {formatTime(selectedLecture.duration)}
+                      {formatTime(currentTime)} / {formatTime(videoDuration)}
                     </span>
                   </div>
 
@@ -585,7 +592,7 @@ const StudentDashboard = () => {
                             : 'bg-muted hover:bg-muted-foreground/30'
                         }`}
                         style={{ 
-                          flex: (concept.endTime - concept.startTime) / selectedLecture.duration 
+                          flex: videoDuration > 0 ? (concept.endTime - concept.startTime) / videoDuration : 0
                         }}
                         onClick={() => jumpToConcept(concept)}
                         title={concept.name}
@@ -708,7 +715,7 @@ const StudentDashboard = () => {
                   >
                     <p className="font-medium text-sm">{lecture.title}</p>
                     <p className="text-xs text-muted-foreground">
-                      {lecture.concepts.length} concepts • {formatTime(lecture.duration)}
+                      {lecture.concepts.length} concepts{lecture.videoUrl && ' • Video'}
                     </p>
                   </div>
                 ))}
