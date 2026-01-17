@@ -85,7 +85,7 @@ router.post('/complete', async (req: Request, res: Response) => {
     const videoUrl = getVideoUrl(videoKey);
 
     try {
-      await axios.post('http://localhost:5000/api/index-video', {
+      await axios.post('http://127.0.0.1:5000/api/index-video', {
         videoUrl: videoUrl,
         lectureId: lectureId
       });

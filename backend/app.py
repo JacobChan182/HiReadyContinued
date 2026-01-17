@@ -12,10 +12,10 @@ def create_app():
     CORS(app)
 
     # Initialize Twelve Labs client
-    TL_API_KEY = os.getenv("TL_API_KEY")
-    if not TL_API_KEY:
+    TWELVELABS_API_KEY = os.getenv("TWELVELABS_API_KEY")
+    if not TWELVELABS_API_KEY:
         raise RuntimeError("Missing TWELVE_LABS_API_KEY env var")
-    tl = TwelveLabs(api_key=TL_API_KEY)
+    tl = TwelveLabs(api_key=TWELVELABS_API_KEY)
 
     @app.get("/health")
     def health():
