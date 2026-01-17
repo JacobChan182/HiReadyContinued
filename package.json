@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "proxy": "http://localhost:5000",
+  "proxy": "http://localhost:5001",
   "scripts": {
     "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:flask\" \"npm run dev:server\"",
     "dev:all": "concurrently \"npm run dev:frontend\" \"npm run dev:server\"",

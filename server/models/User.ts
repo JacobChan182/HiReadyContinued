@@ -40,7 +40,7 @@ UserSchema.methods.comparePassword = async function(candidatePassword: string): 
   return bcrypt.compare(candidatePassword, this.password);
 };
 
-UserSchema.index({ email: 1 });
-UserSchema.index({ pseudonymId: 1 });
+// Note: email and pseudonymId indexes are automatically created by unique: true in the schema definition above
+// No need to explicitly define them again
 
 export const User = mongoose.model<IUser>('User', UserSchema);

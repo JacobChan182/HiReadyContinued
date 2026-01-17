@@ -11,8 +11,8 @@ const router = express.Router();
 // Resolve Flask base URL with fallbacks
 const FLASK_BASE_URL =
   process.env.FLASK_BASE_URL ||
-  process.env.DOCKER_FLASK_SERVICE || // e.g., http://flask:5000 from docker-compose
-  'http://127.0.0.1:5000';
+  process.env.DOCKER_FLASK_SERVICE || // e.g., http://flask:5001 from docker-compose
+  'http://127.0.0.1:5001';
 
 console.log(`[Node] Using Flask base URL: ${FLASK_BASE_URL}`);
 
@@ -111,7 +111,7 @@ router.post('/complete', async (req: Request, res: Response) => {
       const taskId = (indexResp as any)?.data?.task_id;
       if (taskId) console.log(`[Node] TwelveLabs taskId=${taskId} (use /api/task-status?taskId=... on Flask to check progress)`);
 
-      // Fire segmentation (may take minutes); don’t block overall success
+      // Fire segmentation (may take minutes); don't block overall success
       const flaskLong = axios.create({ baseURL: FLASK_BASE_URL, timeout: 300000 });
       try {
         const segResp = await flaskLong.post('/api/segment-video', { videoUrl: signedDownloadUrl, lectureId });
@@ -217,6 +217,45 @@ router.post('/direct', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Direct upload failed:', error);
     res.status(500).json({ error: 'Failed to upload file' });
+  }
+});
+
+// 4. Generate presigned URL for video playback (streaming)
+router.get('/stream/:videoKey', async (req: Request, res: Response) => {
+  try {
+    const { videoKey } = req.params;
+
+    if (!BUCKET_NAME) {
+      return res.status(500).json({ error: 'R2 bucket configuration missing' });
+    }
+
+    // Decode video key if it's URL encoded
+    const decodedKey = decodeURIComponent(videoKey);
+
+    // Generate presigned URL for GetObject (supports range requests for streaming)
+    const command = new GetObjectCommand({ 
+      Bucket: BUCKET_NAME, 
+      Key: decodedKey,
+      // ResponseContentType is optional, but can help with browser compatibility
+    });
+
+    // Generate presigned URL that expires in 1 hour (3600 seconds)
+    // Presigned URLs from R2/S3 support HTTP range requests automatically
+    const presignedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+
+    res.status(200).json({
+      success: true,
+      streamUrl: presignedUrl,
+      expiresIn: 3600,
+    });
+  } catch (error: any) {
+    console.error('Error generating stream URL:', error);
+    
+    if (error.name === 'NoSuchKey') {
+      return res.status(404).json({ error: 'Video not found' });
+    }
+    
+    res.status(500).json({ error: 'Failed to generate stream URL' });
   }
 });
 

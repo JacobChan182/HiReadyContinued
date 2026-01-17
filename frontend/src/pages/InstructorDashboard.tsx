@@ -2,15 +2,16 @@ import { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
 import { mockLectures, mockCourses, calculateConceptInsights, calculateClusterInsights, mockStudents, transformInstructorLectures, enrichLecturesWithMockData } from '@/data/mockData';
-import { getInstructorLectures, createCourse } from '@/lib/api';
+import { getInstructorLectures, createCourse, updateCourse, getCourseStudents, addStudentsToCourse, removeStudentFromCourse } from '@/lib/api';
 import { Lecture } from '@/types';
+import { useToast } from '@/hooks/use-toast';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   AreaChart, Area, PieChart, Pie, Cell, Legend
 } from 'recharts';
 import { 
   Zap, LogOut, Users, TrendingUp, AlertTriangle, BookOpen, 
-  BarChart2, PieChart as PieIcon, Activity, Shield, Eye, Plus, ArrowRight
+  BarChart2, PieChart as PieIcon, Activity, Shield, Eye, Plus, ArrowRight, Settings, X, Save
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -31,14 +32,27 @@ const CHART_COLORS = [
 
 const InstructorDashboard = () => {
   const { user, logout } = useAuth();
+  const { toast } = useToast();
   const [lectures, setLectures] = useState<Lecture[]>(mockLectures);
   const [selectedLecture, setSelectedLecture] = useState<Lecture | null>(null);
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
   const [isCourseDialogOpen, setIsCourseDialogOpen] = useState(false);
+  const [isCourseActionDialogOpen, setIsCourseActionDialogOpen] = useState(false);
+  const [clickedCourseId, setClickedCourseId] = useState<string | null>(null);
+  const [isCourseSettingsOpen, setIsCourseSettingsOpen] = useState(false);
   const [newCourseCode, setNewCourseCode] = useState('');
   const [newCourseName, setNewCourseName] = useState('');
+  const [studentEmails, setStudentEmails] = useState('');
   const [courses, setCourses] = useState(mockCourses);
   const [isLoadingLectures, setIsLoadingLectures] = useState(true);
+  
+  // Course settings state
+  const [courseSettingsName, setCourseSettingsName] = useState('');
+  const [courseSettingsCode, setCourseSettingsCode] = useState('');
+  const [courseStudents, setCourseStudents] = useState<Array<{ userId: string; email: string; pseudonymId: string }>>([]);
+  const [newStudentEmail, setNewStudentEmail] = useState('');
+  const [isLoadingStudents, setIsLoadingStudents] = useState(false);
+  const [isSavingCourse, setIsSavingCourse] = useState(false);
 
   // Fetch real lecture data from API
   useEffect(() => {
@@ -147,6 +161,180 @@ const InstructorDashboard = () => {
       setSelectedLecture(null);
     }
     setIsCourseDialogOpen(false);
+    setIsCourseActionDialogOpen(false);
+  };
+
+  const handleCourseClick = (courseId: string) => {
+    if (courseId === course?.id) {
+      // If clicking on the current course, just switch to it directly
+      handleSwitchCourse(courseId);
+    } else {
+      // For other courses, show the action dialog
+      setClickedCourseId(courseId);
+      setIsCourseActionDialogOpen(true);
+    }
+  };
+
+  const handleGoToCourse = () => {
+    if (clickedCourseId) {
+      handleSwitchCourse(clickedCourseId);
+    }
+  };
+
+  const handleOpenCourseSettings = async () => {
+    setIsCourseActionDialogOpen(false);
+    
+    // Reset state
+    setNewStudentEmail('');
+    
+    setIsCourseSettingsOpen(true);
+    
+    if (clickedCourseId) {
+      const selectedCourse = courses.find(c => c.id === clickedCourseId);
+      if (selectedCourse) {
+        setCourseSettingsName(selectedCourse.name);
+        setCourseSettingsCode(selectedCourse.code);
+        
+        // Fetch enrolled students
+        try {
+          setIsLoadingStudents(true);
+          const response = await getCourseStudents(clickedCourseId);
+          if (response.success && response.data) {
+            setCourseStudents(response.data);
+          }
+        } catch (error) {
+          console.error('Failed to fetch course students:', error);
+          toast({
+            title: 'Error',
+            description: 'Failed to load enrolled students',
+            variant: 'destructive',
+          });
+        } finally {
+          setIsLoadingStudents(false);
+        }
+      }
+    }
+  };
+
+  // Add a student to the course
+  const handleAddStudent = async () => {
+    if (!clickedCourseId || !newStudentEmail.trim()) return;
+
+    const email = newStudentEmail.trim().toLowerCase();
+
+    // Check if student is already enrolled
+    const isAlreadyEnrolled = courseStudents.some(s => s.email.toLowerCase() === email);
+    if (isAlreadyEnrolled) {
+      toast({
+        title: 'Error',
+        description: 'This student is already enrolled in the course',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      const response = await addStudentsToCourse(clickedCourseId, [email]);
+      if (response.success) {
+        // Refresh student list
+        const studentsResponse = await getCourseStudents(clickedCourseId);
+        if (studentsResponse.success && studentsResponse.data) {
+          setCourseStudents(studentsResponse.data);
+        }
+        
+        // Clear input
+        setNewStudentEmail('');
+        
+        toast({
+          title: 'Success',
+          description: `Student ${email} has been added to the course`,
+        });
+      }
+    } catch (error: any) {
+      console.error('Failed to add student:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to add student to course',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  // Remove a student from the course
+  const handleRemoveStudent = async (userId: string, email: string) => {
+    if (!clickedCourseId) return;
+
+    try {
+      const response = await removeStudentFromCourse(clickedCourseId, userId);
+      if (response.success) {
+        // Remove from local state
+        setCourseStudents(courseStudents.filter(s => s.userId !== userId));
+        
+        toast({
+          title: 'Success',
+          description: `Student ${email} has been removed from the course`,
+        });
+      }
+    } catch (error: any) {
+      console.error('Failed to remove student:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to remove student from course',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  // Save course settings
+  const handleSaveCourseSettings = async () => {
+    if (!clickedCourseId) return;
+
+    try {
+      setIsSavingCourse(true);
+      const newCourseId = courseSettingsCode.trim() !== clickedCourseId ? courseSettingsCode.trim() : undefined;
+      const response = await updateCourse(
+        clickedCourseId,
+        courseSettingsName.trim(),
+        newCourseId
+      );
+
+      if (response.success) {
+        // Update local courses state
+        const updatedCourses = courses.map(c => {
+          if (c.id === clickedCourseId) {
+            return {
+              ...c,
+              id: newCourseId || c.id,
+              name: courseSettingsName.trim(),
+              code: courseSettingsCode.trim(),
+            };
+          }
+          return c;
+        });
+        setCourses(updatedCourses);
+        
+        // Update selected course if it was the one we edited
+        if (selectedCourseId === clickedCourseId && newCourseId) {
+          setSelectedCourseId(newCourseId);
+        }
+        
+        toast({
+          title: 'Success',
+          description: 'Course settings have been updated',
+        });
+        
+        setIsCourseSettingsOpen(false);
+      }
+    } catch (error: any) {
+      console.error('Failed to save course settings:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to save course settings',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSavingCourse(false);
+    }
   };
 
   const handleCreateCourse = async () => {
@@ -155,8 +343,44 @@ const InstructorDashboard = () => {
     }
 
     try {
+      // Parse email list (split by comma, newline, or semicolon, and trim)
+      const emailList = studentEmails
+        .split(/[,\n;]/)
+        .map(email => email.trim())
+        .filter(email => email.length > 0);
+
       // Create course in database
-      await createCourse(newCourseCode.trim(), newCourseName.trim(), user.id);
+      const response = await createCourse(newCourseCode.trim(), newCourseName.trim(), user.id, emailList);
+      
+      // Show assignment results
+      if (emailList.length > 0) {
+        const assignedCount = response.assignedStudents?.length || 0;
+        const notFoundCount = response.notFoundEmails?.length || 0;
+        
+        if (assignedCount > 0 && notFoundCount === 0) {
+          toast({
+            title: "Course created successfully",
+            description: `Assigned ${assignedCount} student${assignedCount !== 1 ? 's' : ''} to the course.`,
+          });
+        } else if (assignedCount > 0 && notFoundCount > 0) {
+          toast({
+            title: "Course created with partial assignments",
+            description: `Assigned ${assignedCount} student${assignedCount !== 1 ? 's' : ''}. ${notFoundCount} email${notFoundCount !== 1 ? 's' : ''} not found.`,
+            variant: "default",
+          });
+        } else if (notFoundCount > 0) {
+          toast({
+            title: "Course created, but no students assigned",
+            description: `${notFoundCount} email${notFoundCount !== 1 ? 's' : ''} not found. Please verify the email addresses.`,
+            variant: "destructive",
+          });
+        }
+      } else {
+        toast({
+          title: "Course created successfully",
+          description: "You can assign students later.",
+        });
+      }
       
       // Update local state
       const newCourse = {
@@ -172,6 +396,7 @@ const InstructorDashboard = () => {
       setSelectedLecture(null); // No lectures yet
       setNewCourseCode('');
       setNewCourseName('');
+      setStudentEmails('');
       setIsCourseDialogOpen(false);
     } catch (error) {
       console.error('Failed to create course:', error);
@@ -186,6 +411,7 @@ const InstructorDashboard = () => {
       setCourses([...courses, newCourse]);
       setNewCourseCode('');
       setNewCourseName('');
+      setStudentEmails('');
       setIsCourseDialogOpen(false);
     }
   };
@@ -663,7 +889,7 @@ const InstructorDashboard = () => {
                   courses.map((c) => (
                     <motion.button
                       key={c.id}
-                      onClick={() => handleSwitchCourse(c.id)}
+                      onClick={() => handleCourseClick(c.id)}
                       className={`w-full p-4 rounded-lg border text-left transition-all ${
                         c.id === course?.id
                           ? 'border-primary bg-primary/10'
@@ -713,6 +939,20 @@ const InstructorDashboard = () => {
                     onChange={(e) => setNewCourseName(e.target.value)}
                   />
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="student-emails">Assign Students (Optional)</Label>
+                  <textarea
+                    id="student-emails"
+                    className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    placeholder="Enter email addresses, one per line or separated by commas&#10;e.g., student1@example.com&#10;student2@example.com"
+                    value={studentEmails}
+                    onChange={(e) => setStudentEmails(e.target.value)}
+                    rows={4}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Enter employee email addresses to automatically assign them to this course
+                  </p>
+                </div>
                 <Button
                   onClick={handleCreateCourse}
                   disabled={!newCourseCode.trim() || !newCourseName.trim()}
@@ -724,6 +964,161 @@ const InstructorDashboard = () => {
               </div>
             </TabsContent>
           </Tabs>
+        </DialogContent>
+      </Dialog>
+
+      {/* Course Action Dialog */}
+      <Dialog open={isCourseActionDialogOpen} onOpenChange={setIsCourseActionDialogOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>Course Options</DialogTitle>
+            <DialogDescription>
+              Choose an action for {clickedCourseId ? courses.find(c => c.id === clickedCourseId)?.name : 'this course'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-4">
+            <Button
+              onClick={handleGoToCourse}
+              className="w-full justify-start"
+              variant="outline"
+            >
+              <BookOpen className="w-4 h-4 mr-2" />
+              Go to Course
+            </Button>
+            <Button
+              onClick={handleOpenCourseSettings}
+              className="w-full justify-start"
+              variant="outline"
+            >
+              <Settings className="w-4 h-4 mr-2" />
+              Course Settings
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Course Settings Dialog */}
+      <Dialog open={isCourseSettingsOpen} onOpenChange={(open) => {
+        setIsCourseSettingsOpen(open);
+        if (!open) {
+          // Reset state when dialog closes
+          setNewStudentEmail('');
+          setIsSavingCourse(false);
+        }
+      }}>
+        <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Course Settings</DialogTitle>
+            <DialogDescription>
+              Manage settings for {clickedCourseId ? courses.find(c => c.id === clickedCourseId)?.name : 'this course'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6 py-4">
+            {clickedCourseId && (
+              <>
+                {/* Course Information */}
+                <div className="space-y-4">
+                  <div>
+                    <Label htmlFor="course-code">Course Code</Label>
+                    <Input
+                      id="course-code"
+                      value={courseSettingsCode}
+                      onChange={(e) => setCourseSettingsCode(e.target.value)}
+                      placeholder="e.g., CS 4820"
+                      className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="course-name">Course Name</Label>
+                    <Input
+                      id="course-name"
+                      value={courseSettingsName}
+                      onChange={(e) => setCourseSettingsName(e.target.value)}
+                      placeholder="e.g., Introduction to Machine Learning"
+                      className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label>Number of Lectures</Label>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {courses.find(c => c.id === clickedCourseId)?.lectureIds.length || 0}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Student Management */}
+                <div className="space-y-4 pt-4 border-t">
+                  <div>
+                    <Label htmlFor="student-email">Add Student</Label>
+                    <div className="flex gap-2 mt-1">
+                      <Input
+                        id="student-email"
+                        value={newStudentEmail}
+                        onChange={(e) => setNewStudentEmail(e.target.value)}
+                        placeholder="Enter student email..."
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            handleAddStudent();
+                          }
+                        }}
+                      />
+                      <Button onClick={handleAddStudent} disabled={!newStudentEmail.trim()}>
+                        <Plus className="w-4 h-4 mr-2" />
+                        Add
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Enter the email address of the student you want to add to this course
+                    </p>
+                  </div>
+
+                  {/* Enrolled Students List */}
+                  <div>
+                    <Label>Enrolled Students ({courseStudents.length})</Label>
+                    {isLoadingStudents ? (
+                      <div className="mt-2 text-center py-4 text-sm text-muted-foreground">
+                        Loading students...
+                      </div>
+                    ) : courseStudents.length === 0 ? (
+                      <div className="mt-2 text-center py-4 text-sm text-muted-foreground border rounded-md">
+                        No students enrolled in this course
+                      </div>
+                    ) : (
+                      <div className="mt-2 space-y-1 border rounded-md bg-card max-h-60 overflow-y-auto">
+                        {courseStudents.map((student) => (
+                          <div
+                            key={student.userId}
+                            className="flex items-center justify-between p-2 hover:bg-muted"
+                          >
+                            <div>
+                              <p className="text-sm font-medium">{student.email}</p>
+                              <p className="text-xs text-muted-foreground">{student.pseudonymId}</p>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleRemoveStudent(student.userId, student.email)}
+                            >
+                              <X className="w-4 h-4 text-destructive" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+          <div className="flex justify-end gap-2 pt-4 border-t">
+            <Button variant="outline" onClick={() => setIsCourseSettingsOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveCourseSettings} disabled={isSavingCourse}>
+              <Save className="w-4 h-4 mr-2" />
+              {isSavingCourse ? 'Saving...' : 'Save Changes'}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

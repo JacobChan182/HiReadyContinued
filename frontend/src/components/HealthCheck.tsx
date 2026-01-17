@@ -5,7 +5,7 @@ const HealthCheck = () => {
   const [expressStatus, setExpressStatus] = useState('Checking...');
 
   useEffect(() => {
-    // Test Flask Proxy (/api/py/health -> localhost:5000/health)
+    // Test Flask Proxy (/api/py/health -> localhost:5001/health)
     fetch('/api/py/health')
       .then(res => res.json())
       .then(data => setFlaskStatus(data.status === 'ok' ? '🟢 Flask Online' : '🔴 Flask Error'))

@@ -9,7 +9,7 @@ def main():
     parser.add_argument("--message", default="Hello!", help="Message to send")
     parser.add_argument("--provider", default="openai", help="LLM provider (openai/anthropic/mistral)")
     parser.add_argument("--model", default="gpt-5", help="Model name for provider")
-    parser.add_argument("--url", default="http://localhost:5000/api/backboard/chat", help="Endpoint URL")
+    parser.add_argument("--url", default="http://localhost:5001/api/backboard/chat", help="Endpoint URL")
     args = parser.parse_args()
 
     payload = {

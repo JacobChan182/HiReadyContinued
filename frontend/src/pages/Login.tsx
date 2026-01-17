@@ -58,7 +58,7 @@ const Login = () => {
     }
   };
 
-    // This will now be automatically routed to http://localhost:5000/api/hello
+    // This will now be automatically routed to http://localhost:5001/api/hello
   const fetchData = async () => {
     const response = await fetch('/api/hello'); 
     const data = await response.json();

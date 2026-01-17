@@ -1,5 +1,6 @@
 import express, { Request, Response } from 'express';
 import { Student } from '../models/Student';
+import { Course } from '../models/Course';
 
 const router = express.Router();
 
@@ -18,6 +19,55 @@ router.get('/:userId', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error fetching student data:', error);
     res.status(500).json({ error: 'Failed to fetch student data' });
+  }
+});
+
+// Get student courses and lectures
+router.get('/:userId/courses', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+
+    const student = await Student.findOne({ userId });
+
+    if (!student) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
+
+    // Get all courses the student is enrolled in
+    const courses = await Course.find({ courseId: { $in: student.courseIds } });
+
+    // Transform courses and lectures to match frontend format
+    const transformedCourses = courses.map(course => ({
+      id: course.courseId,
+      name: course.courseName,
+      code: course.courseId,
+      instructorId: course.instructorId,
+      lectureIds: course.lectures.map(l => l.lectureId),
+    }));
+
+    // Transform all lectures from all courses
+    const allLectures = courses.flatMap(course =>
+      course.lectures.map(lecture => ({
+        id: lecture.lectureId,
+        title: lecture.lectureTitle,
+        courseId: course.courseId,
+        videoUrl: lecture.videoUrl || '',
+        duration: 0, // Duration not stored in DB, will need to be calculated or stored
+        concepts: [], // Concepts not stored in DB, will need separate fetch
+        uploadedAt: lecture.createdAt ? new Date(lecture.createdAt) : new Date(),
+      }))
+    );
+
+    res.status(200).json({
+      success: true,
+      data: {
+        courses: transformedCourses,
+        lectures: allLectures,
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching student courses:', error);
+    res.status(500).json({ error: 'Failed to fetch student courses' });
   }
 });
 

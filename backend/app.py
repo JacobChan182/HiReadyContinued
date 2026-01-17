@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from backboard.client import BackboardClient
 import asyncio
 from pymongo import MongoClient
-from datetime import datetime
+from datetime import datetime, UTC
 from services.video_service import start_video_indexing, index_and_segment, verify_index_configuration
 
 load_dotenv()
@@ -21,14 +21,25 @@ def create_app():
         mongo_client = None
         db = None
     else:
-        mongo_client = MongoClient(MONGODB_URI)
-        db = mongo_client["no-more-tears"] 
-        print("✅ MongoDB connected successfully")
+        try:
+            # For development: allow invalid certificates to avoid SSL issues on macOS
+            # In production, you should properly configure SSL certificates
+            mongo_client = MongoClient(
+                MONGODB_URI,
+                tlsAllowInvalidCertificates=True  # Only for development
+            )
+            # Test the connection
+            mongo_client.admin.command('ping')
+            db = mongo_client["no-more-tears"] 
+            print("✅ MongoDB connected successfully")
+        except Exception as e:
+            print(f"⚠️  MongoDB connection failed: {e}")
+            print("⚠️  Chat history will not be saved.")
+            mongo_client = None
+            db = None
 
-    TL_API_KEY = os.getenv("TL_API_KEY")
-    if not TL_API_KEY:
-        # Initialize Twelve Labs client
-        TWELVELABS_API_KEY = os.getenv("TWELVELABS_API_KEY")
+    # Initialize Twelve Labs client
+    TWELVELABS_API_KEY = os.getenv("TWELVELABS_API_KEY")
     if not TWELVELABS_API_KEY:
         raise RuntimeError("Missing TWELVE_LABS_API_KEY env var")
     tl = TwelveLabs(api_key=TWELVELABS_API_KEY)
@@ -66,26 +77,29 @@ def create_app():
                 "content": user_message,
                 "provider": provider,
                 "model": model,
-                "timestamp": datetime.utcnow()
+                "timestamp": datetime.now(UTC)
             })
 
-        # Create assistant and thread, then send the message with memory enabled
-        assistant = asyncio.run(client.create_assistant(
-            name="NoMoreTears Assistant",
-            system_prompt="You are a helpful educational assistant that helps students understand their lectures better"
-        ))
-        thread = asyncio.run(client.create_thread(assistant.assistant_id))
+        # Run all async operations in a single event loop
+        async def run_chat():
+            assistant = await client.create_assistant(
+                name="NoMoreTears Assistant",
+                description="A helpful educational assistant that helps students understand their lectures better"
+            )
+            thread = await client.create_thread(assistant.assistant_id)
 
-        # Send message with memory="Auto" to enable persistent context
-        response = asyncio.run(client.add_message(
-            thread_id=thread.thread_id,
-            content=user_message,
-            llm_provider=provider,
-            model_name=model,
-            memory="Auto",  # Enable memory across conversations
-            stream=False
-        ))
+            response = await client.add_message(
+                thread_id=thread.thread_id,
+                content=user_message,
+                llm_provider=provider,
+                model_name=model,
+                memory="Auto",
+                stream=False
+            )
+            
+            return assistant, thread, response
 
+        assistant, thread, response = asyncio.run(run_chat())
         ai_response = response.content
 
         # Save AI response to MongoDB
@@ -96,15 +110,15 @@ def create_app():
                 "content": ai_response,
                 "provider": provider,
                 "model": model,
-                "assistant_id": assistant.assistant_id,
-                "thread_id": thread.thread_id,
-                "timestamp": datetime.utcnow()
+                "assistant_id": str(assistant.assistant_id),
+                "thread_id": str(thread.thread_id),
+                "timestamp": datetime.now(UTC)
             })
 
         return jsonify({
             "response": ai_response,
-            "assistant_id": assistant.assistant_id,
-            "thread_id": thread.thread_id
+            "assistant_id": str(assistant.assistant_id),
+            "thread_id": str(thread.thread_id)
         })
 
     @app.get('/api/backboard/chat/history/<user_id>')
@@ -164,15 +178,13 @@ def create_app():
 
         client = BackboardClient(api_key=api_key)
 
-        # Create assistant with tools
         assistant = asyncio.run(client.create_assistant(
             name="Video Analysis Assistant",
-            system_prompt="You are an expert educational video analyst. Analyze student engagement patterns to identify difficult sections and provide actionable insights.",
+            description="An expert educational video analyst that analyzes student engagement patterns to identify difficult sections and provide actionable insights",
             tools=tools
         ))
         thread = asyncio.run(client.create_thread(assistant.assistant_id))
 
-        # Send initial analysis request
         full_prompt = f"""
 {analysis_prompt}
 
@@ -227,7 +239,7 @@ Use the get_video_rewind_data tool to fetch student interaction data, then analy
                 "video_id": video_id,
                 "video_title": video_title,
                 "analysis": analysis,
-                "timestamp": datetime.utcnow()
+                "timestamp": datetime.now(UTC)
             })
 
         return jsonify({
@@ -243,8 +255,8 @@ Use the get_video_rewind_data tool to fetch student interaction data, then analy
         
         video_id = data.get("video_id")
         video_title = data.get("video_title", "")
-        topics = data.get("topics", [])  # Segmented topics from TwelveLabs
-        content_type = data.get("content_type", "quiz")  # "quiz", "summary", "help"
+        topics = data.get("topics", [])
+        content_type = data.get("content_type", "quiz")
         
         if not video_id or not topics:
             return {"status": "error", "message": "video_id and topics are required"}, 400
@@ -253,7 +265,6 @@ Use the get_video_rewind_data tool to fetch student interaction data, then analy
         if not api_key:
             return {"status": "error", "message": "Missing BACKBOARD_API_KEY env var"}, 500
 
-        # Build prompt based on content type
         if content_type == "quiz":
             system_prompt = "You are an expert educational content creator. Generate practice quiz questions based on video topics."
             task = "Generate 3-5 multiple choice quiz questions for each topic. Include answers and explanations."
@@ -288,7 +299,7 @@ Task: {task}
         # Create assistant for content generation
         assistant = asyncio.run(client.create_assistant(
             name="Educational Content Generator",
-            system_prompt=system_prompt
+            description=system_prompt
         ))
         thread = asyncio.run(client.create_thread(assistant.assistant_id))
 
@@ -311,7 +322,7 @@ Task: {task}
                 "content_type": content_type,
                 "content": generated_content,
                 "topics": topics,
-                "timestamp": datetime.utcnow()
+                "timestamp": datetime.now(UTC)
             })
 
         return jsonify({
@@ -405,5 +416,5 @@ Task: {task}
 
 if __name__ == "__main__":
     app = create_app()
-    port = int(os.getenv("FLASK_PORT", "5000"))
+    port = int(os.getenv("FLASK_PORT", "5001"))  # Changed default from 5000 to 5001 to avoid AirPlay conflict
     app.run(host="0.0.0.0", port=port, debug=True)

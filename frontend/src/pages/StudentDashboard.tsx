@@ -2,50 +2,269 @@ import { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAnalytics } from '@/contexts/AnalyticsContext';
-import { mockLectures, mockCourses } from '@/data/mockData';
-import { Concept } from '@/types';
+import { mockLectures, mockCourses, enrichLecturesWithMockData } from '@/data/mockData';
+import { getStudentCourses, getVideoStreamUrl } from '@/lib/api';
+import { Concept, Lecture, Course } from '@/types';
 import { 
   Play, Pause, SkipForward, Search, Sparkles, Clock, 
-  BookOpen, ChevronRight, Zap, LogOut, User
+  BookOpen, ChevronRight, Zap, LogOut, User, ChevronDown
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 const StudentDashboard = () => {
   const { user, logout } = useAuth();
   const { trackEvent, trackRewind } = useAnalytics();
   const videoRef = useRef<HTMLVideoElement>(null);
   const previousTimeRef = useRef<number>(0);
-  const [selectedLecture, setSelectedLecture] = useState(mockLectures[0]);
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [lectures, setLectures] = useState<Lecture[]>([]);
+  const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
+  const [selectedLecture, setSelectedLecture] = useState<Lecture | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
+  const [videoDuration, setVideoDuration] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSummary, setShowSummary] = useState(false);
   const [activeConcept, setActiveConcept] = useState<Concept | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [streamUrl, setStreamUrl] = useState<string | null>(null);
+  const [isLoadingStream, setIsLoadingStream] = useState(false);
 
-  const course = mockCourses.find(c => c.id === selectedLecture.courseId);
-
-  // Reset previous time when lecture changes
+  // Fetch student courses and lectures from API
   useEffect(() => {
-    previousTimeRef.current = 0;
-    setCurrentTime(0);
-  }, [selectedLecture.id]);
+    const fetchStudentData = async () => {
+      if (!user || user.role !== 'student') {
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        setIsLoading(true);
+        const response = await getStudentCourses(user.id);
+
+        if (response.success && response.data) {
+          const { courses: apiCourses, lectures: apiLectures } = response.data;
+
+          // Transform and enrich lectures with mock data (for concepts, duration, etc.)
+          const enrichedLectures = enrichLecturesWithMockData(apiLectures || []);
+
+          // Determine which courses and lectures to use
+          const finalCourses = (apiCourses && apiCourses.length > 0) ? apiCourses : mockCourses;
+          const finalLectures = (enrichedLectures.length > 0) ? enrichedLectures : mockLectures;
+
+          setCourses(finalCourses);
+          setLectures(finalLectures);
+
+          // Set initial course selection
+          if (finalCourses.length > 0) {
+            const firstCourseId = finalCourses[0].id;
+            setSelectedCourseId(firstCourseId);
+            
+            // Set initial lecture selection for the first course
+            const firstCourseLectures = finalLectures.filter(l => l.courseId === firstCourseId);
+            if (firstCourseLectures.length > 0) {
+              setSelectedLecture(firstCourseLectures[0]);
+            } else if (finalLectures.length > 0) {
+              setSelectedLecture(finalLectures[0]);
+            }
+          }
+        } else {
+          // Fallback to mock data
+          setCourses(mockCourses);
+          setLectures(mockLectures);
+          if (mockCourses.length > 0) {
+            setSelectedCourseId(mockCourses[0].id);
+            const firstCourseLectures = mockLectures.filter(l => l.courseId === mockCourses[0].id);
+            if (firstCourseLectures.length > 0) {
+              setSelectedLecture(firstCourseLectures[0]);
+            } else if (mockLectures.length > 0) {
+              setSelectedLecture(mockLectures[0]);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch student courses, using mock data:', error);
+        // Fallback to mock data
+        setCourses(mockCourses);
+        setLectures(mockLectures);
+        if (mockCourses.length > 0 && !selectedCourseId) {
+          setSelectedCourseId(mockCourses[0].id);
+        }
+        if (mockLectures.length > 0 && !selectedLecture) {
+          setSelectedLecture(mockLectures[0]);
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchStudentData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  // Get user's assigned courses
+  const userCourses = courses;
+
+  // Get selected course
+  const course = selectedCourseId
+    ? courses.find(c => c.id === selectedCourseId)
+    : userCourses.length > 0
+      ? userCourses[0]
+      : selectedLecture
+        ? courses.find(c => c.id === selectedLecture.courseId)
+        : null;
+
+  // Filter lectures by selected course
+  const availableLectures = course
+    ? lectures.filter(l => l.courseId === course.id)
+    : lectures;
+
+  // Update selected lecture when course changes
+  useEffect(() => {
+    if (course && availableLectures.length > 0) {
+      // Check if current lecture belongs to selected course
+      const currentLectureInCourse = selectedLecture 
+        ? availableLectures.find(l => l.id === selectedLecture.id)
+        : null;
+      if (!currentLectureInCourse) {
+        // Current lecture doesn't belong to selected course, switch to first lecture in course
+        setSelectedLecture(availableLectures[0]);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [course?.id]);
+
+  // Update selected lecture when course changes
+  useEffect(() => {
+    if (course && availableLectures.length > 0) {
+      // Check if current lecture belongs to selected course
+      const currentLectureInCourse = selectedLecture 
+        ? availableLectures.find(l => l.id === selectedLecture.id)
+        : null;
+      if (!currentLectureInCourse) {
+        // Current lecture doesn't belong to selected course, switch to first lecture in course
+        setSelectedLecture(availableLectures[0]);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [course?.id]);
+
+  const handleSwitchCourse = (courseId: string) => {
+    setSelectedCourseId(courseId);
+    const newCourse = courses.find(c => c.id === courseId);
+    if (newCourse) {
+      const firstLecture = lectures.find(l => l.courseId === courseId);
+      if (firstLecture) {
+        setSelectedLecture(firstLecture);
+      }
+    }
+  };
+
+  // Extract video key from videoUrl (videoUrl format: ${PUBLIC_URL}/${key} or R2 endpoint)
+  const extractVideoKey = (videoUrl: string): string | null => {
+    if (!videoUrl) return null;
+    
+    try {
+      // Look for 'videos' in the path - this is always present in our video keys
+      const videosMatch = videoUrl.match(/\/videos\/.+$/);
+      if (videosMatch) {
+        // Remove leading slash to get the key
+        return videosMatch[0].substring(1);
+      }
+      
+      // If no 'videos' found, try to extract from URL path
+      // This handles edge cases where the URL structure might differ
+      const url = new URL(videoUrl);
+      const pathParts = url.pathname.split('/').filter(part => part);
+      
+      // Look for 'videos' in path parts
+      const videosIndex = pathParts.findIndex(part => part === 'videos');
+      if (videosIndex !== -1) {
+        return pathParts.slice(videosIndex).join('/');
+      }
+    } catch (error) {
+      // If URL parsing fails, try regex approach
+      const videosMatch = videoUrl.match(/\/videos\/.+$/);
+      if (videosMatch) {
+        return videosMatch[0].substring(1);
+      }
+    }
+    
+    return null;
+  };
+
+  // Fetch presigned stream URL when lecture changes
+  useEffect(() => {
+    const loadStreamUrl = async () => {
+      if (!selectedLecture?.videoUrl) {
+        setStreamUrl(null);
+        return;
+      }
+
+      setIsLoadingStream(true);
+      try {
+        const videoKey = extractVideoKey(selectedLecture.videoUrl);
+        
+        if (!videoKey) {
+          // Fallback to using the videoUrl directly if we can't extract key
+          console.warn('Could not extract video key, using videoUrl directly:', selectedLecture.videoUrl);
+          setStreamUrl(selectedLecture.videoUrl);
+          setIsLoadingStream(false);
+          return;
+        }
+
+        const response = await getVideoStreamUrl(videoKey);
+        if (response.success && response.streamUrl) {
+          setStreamUrl(response.streamUrl);
+        } else {
+          // Fallback to original videoUrl
+          setStreamUrl(selectedLecture.videoUrl);
+        }
+      } catch (error) {
+        console.error('Failed to load stream URL, using videoUrl directly:', error);
+        // Fallback to original videoUrl
+        setStreamUrl(selectedLecture.videoUrl);
+      } finally {
+        setIsLoadingStream(false);
+      }
+    };
+
+    loadStreamUrl();
+  }, [selectedLecture?.videoUrl, selectedLecture?.id]);
+
+  // Reset previous time and duration when lecture changes
+  useEffect(() => {
+    if (selectedLecture) {
+      previousTimeRef.current = 0;
+      setCurrentTime(0);
+      setVideoDuration(0); // Reset duration, will be set when video metadata loads
+    }
+  }, [selectedLecture?.id]);
 
   // Track current concept based on video time
   useEffect(() => {
-    const concept = selectedLecture.concepts.find(
-      c => currentTime >= c.startTime && currentTime < c.endTime
-    );
-    if (concept && concept.id !== activeConcept?.id) {
-      setActiveConcept(concept);
+    if (selectedLecture) {
+      const concept = selectedLecture.concepts.find(
+        c => currentTime >= c.startTime && currentTime < c.endTime
+      );
+      if (concept && concept.id !== activeConcept?.id) {
+        setActiveConcept(concept);
+      }
     }
   }, [currentTime, selectedLecture, activeConcept]);
 
   const handlePlayPause = () => {
-    if (videoRef.current) {
+    if (videoRef.current && selectedLecture) {
       if (isPlaying) {
         videoRef.current.pause();
         trackEvent('pause', selectedLecture.id, activeConcept?.id);
@@ -58,7 +277,7 @@ const StudentDashboard = () => {
   };
 
   const jumpToConcept = (concept: Concept) => {
-    if (videoRef.current) {
+    if (videoRef.current && selectedLecture) {
       const previousTime = previousTimeRef.current;
       const newTime = concept.startTime;
       
@@ -95,7 +314,7 @@ const StudentDashboard = () => {
   };
 
   const handleTimeUpdate = () => {
-    if (videoRef.current) {
+    if (videoRef.current && selectedLecture) {
       const newTime = videoRef.current.currentTime;
       const previousTime = previousTimeRef.current;
       
@@ -136,10 +355,12 @@ const StudentDashboard = () => {
     }
   };
 
-  const filteredConcepts = selectedLecture.concepts.filter(c =>
-    c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.summary.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredConcepts = selectedLecture
+    ? selectedLecture.concepts.filter(c =>
+        c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        c.summary.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : [];
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -148,8 +369,10 @@ const StudentDashboard = () => {
   };
 
   const generateSummary = () => {
-    setShowSummary(true);
-    trackEvent('seek', selectedLecture.id, undefined, { action: 'generate-summary' });
+    if (selectedLecture) {
+      setShowSummary(true);
+      trackEvent('seek', selectedLecture.id, undefined, { action: 'generate-summary' });
+    }
   };
 
   return (
@@ -178,23 +401,132 @@ const StudentDashboard = () => {
       </header>
 
       <main className="container mx-auto px-4 py-6">
-        <div className="grid lg:grid-cols-3 gap-6">
-          {/* Video Player Section */}
-          <div className="lg:col-span-2 space-y-4">
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-            >
-              <Card className="glass-card overflow-hidden">
-                {/* Video */}
-                <div className="relative aspect-video bg-secondary">
-                  <video
-                    ref={videoRef}
-                    src={selectedLecture.videoUrl}
-                    className="w-full h-full object-cover"
-                    onTimeUpdate={handleTimeUpdate}
-                    onEnded={() => setIsPlaying(false)}
-                  />
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="text-center">
+              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+              <p className="text-muted-foreground">Loading courses...</p>
+            </div>
+          </div>
+        ) : courses.length === 0 ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="text-center">
+              <BookOpen className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+              <h3 className="text-lg font-semibold mb-2">No courses assigned</h3>
+              <p className="text-muted-foreground">You haven't been assigned to any courses yet.</p>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Course Header */}
+            {course && userCourses.length > 1 && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-6"
+          >
+            <Card className="glass-card p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" className="h-auto p-0 hover:bg-transparent">
+                        <div className="text-left">
+                          <p className="text-sm text-muted-foreground">{course.code}</p>
+                          <h2 className="text-2xl font-bold">{course.name}</h2>
+                        </div>
+                        <ChevronDown className="w-4 h-4 ml-2 text-muted-foreground" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="w-64">
+                      {userCourses.map((c) => (
+                        <DropdownMenuItem
+                          key={c.id}
+                          onClick={() => handleSwitchCourse(c.id)}
+                          className={c.id === course.id ? 'bg-primary/10' : ''}
+                        >
+                          <div className="flex flex-col">
+                            <span className="font-medium">{c.code}</span>
+                            <span className="text-xs text-muted-foreground">{c.name}</span>
+                          </div>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+                <Badge variant="outline">
+                  {availableLectures.length} lecture{availableLectures.length !== 1 ? 's' : ''}
+                </Badge>
+              </div>
+            </Card>
+          </motion.div>
+        )}
+
+        {/* Course Header - Single Course or No Switcher */}
+        {course && userCourses.length <= 1 && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-6"
+          >
+            <Card className="glass-card p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-muted-foreground">{course.code}</p>
+                  <h2 className="text-2xl font-bold">{course.name}</h2>
+                </div>
+                <Badge variant="outline">
+                  {availableLectures.length} lecture{availableLectures.length !== 1 ? 's' : ''}
+                </Badge>
+              </div>
+            </Card>
+          </motion.div>
+        )}
+
+        {!selectedLecture ? (
+          <div className="text-center py-12">
+            <p className="text-muted-foreground mb-4">No lectures available</p>
+            <p className="text-sm text-muted-foreground">
+              {course 
+                ? "This course doesn't have any lectures yet."
+                : "You haven't been assigned to any courses yet."}
+            </p>
+          </div>
+        ) : (
+          <div className="grid lg:grid-cols-3 gap-6">
+            {/* Video Player Section */}
+            <div className="lg:col-span-2 space-y-4">
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+              >
+                <Card className="glass-card overflow-hidden">
+                  {/* Video */}
+                  <div className="relative aspect-video bg-secondary">
+                    {isLoadingStream ? (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <div className="text-center">
+                          <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+                          <p className="text-sm text-muted-foreground">Loading video...</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <video
+                        ref={videoRef}
+                        src={streamUrl || selectedLecture.videoUrl}
+                        className="w-full h-full object-contain"
+                        onTimeUpdate={handleTimeUpdate}
+                        onLoadedMetadata={() => {
+                          if (videoRef.current) {
+                            setVideoDuration(videoRef.current.duration || 0);
+                          }
+                        }}
+                        onEnded={() => setIsPlaying(false)}
+                        preload="metadata"
+                        playsInline
+                        crossOrigin="anonymous"
+                      />
+                    )}
                   
                   {/* Play overlay */}
                   {!isPlaying && (
@@ -239,13 +571,13 @@ const StudentDashboard = () => {
                     
                     <div className="flex-1">
                       <Progress 
-                        value={(currentTime / selectedLecture.duration) * 100}
+                        value={videoDuration > 0 ? (currentTime / videoDuration) * 100 : 0}
                         className="h-2"
                       />
                     </div>
                     
                     <span className="text-sm font-mono text-muted-foreground">
-                      {formatTime(currentTime)} / {formatTime(selectedLecture.duration)}
+                      {formatTime(currentTime)} / {formatTime(videoDuration)}
                     </span>
                   </div>
 
@@ -260,7 +592,7 @@ const StudentDashboard = () => {
                             : 'bg-muted hover:bg-muted-foreground/30'
                         }`}
                         style={{ 
-                          flex: (concept.endTime - concept.startTime) / selectedLecture.duration 
+                          flex: videoDuration > 0 ? (concept.endTime - concept.startTime) / videoDuration : 0
                         }}
                         onClick={() => jumpToConcept(concept)}
                         title={concept.name}
@@ -275,7 +607,6 @@ const StudentDashboard = () => {
             <Card className="glass-card p-4">
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="text-sm text-muted-foreground">{course?.code}</p>
                   <h1 className="text-xl font-semibold">{selectedLecture.title}</h1>
                 </div>
                 <Button onClick={generateSummary} className="gradient-bg glow">
@@ -376,7 +707,7 @@ const StudentDashboard = () => {
             <Card className="glass-card p-4">
               <h3 className="font-semibold mb-3">Other Lectures</h3>
               <div className="space-y-2">
-                {mockLectures.filter(l => l.id !== selectedLecture.id).map(lecture => (
+                {availableLectures.filter(l => selectedLecture && l.id !== selectedLecture.id).map(lecture => (
                   <div
                     key={lecture.id}
                     onClick={() => setSelectedLecture(lecture)}
@@ -384,14 +715,22 @@ const StudentDashboard = () => {
                   >
                     <p className="font-medium text-sm">{lecture.title}</p>
                     <p className="text-xs text-muted-foreground">
-                      {lecture.concepts.length} concepts • {formatTime(lecture.duration)}
+                      {lecture.concepts.length} concepts{lecture.videoUrl && ' • Video'}
                     </p>
                   </div>
                 ))}
+                {availableLectures.filter(l => selectedLecture && l.id !== selectedLecture.id).length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    No other lectures in this course
+                  </p>
+                )}
               </div>
             </Card>
           </div>
         </div>
+        )}
+          </>
+        )}
       </main>
     </div>
   );
