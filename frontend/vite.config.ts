@@ -58,6 +58,7 @@ import { componentTagger } from "lovable-tagger";
 console.log("!!! VITE IS READING THE FRONTEND CONFIG !!!");
 
 export default defineConfig(({ mode }) => ({
+  root: path.resolve(__dirname, "./"),
   server: {
     host: "127.0.0.1",
     port: 5173,

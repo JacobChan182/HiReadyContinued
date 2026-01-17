@@ -2,9 +2,14 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
+import { fileURLToPath } from 'url'; // This is what was missing
+
+// These two lines recreate __dirname for ES Modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Load environment variables from project root BEFORE importing other modules
-const envPath = path.resolve(process.cwd(), '.env');
+const envPath = path.resolve(__dirname, '.env');
 dotenv.config({ path: envPath });
 
 import connectDB from './db';
