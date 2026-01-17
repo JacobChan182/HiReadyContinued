@@ -1,8 +1,9 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 from twelvelabs import TwelveLabs
 import os
 from dotenv import load_dotenv
+from services.video_service import start_video_indexing
 
 load_dotenv()
 
@@ -32,6 +33,27 @@ def create_app():
             return {"status": "connected", "index_count": len(indexes)}, 200
         except Exception as e:
             return {"status": "error", "message": str(e)}, 500
+        
+    @app.route('/api/index-video', methods=['POST'])
+    def handle_index_request():
+        data = request.json
+        video_url = data.get('videoUrl')
+        lecture_id = data.get('lectureId')
+
+        if not video_url:
+            return jsonify({"error": "No video URL provided"}), 400
+
+        # Trigger the Twelve Labs indexing process
+        task_id = start_video_indexing(video_url)
+        
+        if task_id:
+            return jsonify({
+                "success": True, 
+                "message": "Indexing task created", 
+                "task_id": task_id
+            }), 202
+        else:
+            return jsonify({"error": "Failed to start indexing"}), 500
 
     return app
 

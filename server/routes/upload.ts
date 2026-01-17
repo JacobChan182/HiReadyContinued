@@ -3,6 +3,7 @@ import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { s3Client, BUCKET_NAME, generateVideoKey, getVideoUrl } from '../utils/r2';
 import { Lecturer } from '../models/Lecturer';
+import axios from 'axios';
 
 const router = express.Router();
 
@@ -65,7 +66,7 @@ router.post('/presigned-url', async (req: Request, res: Response) => {
 router.post('/complete', async (req: Request, res: Response) => {
   try {
     const { userId, lectureId, videoKey, lectureTitle, courseId } = req.body;
-
+    
     if (!userId || !lectureId || !videoKey) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
@@ -82,6 +83,17 @@ router.post('/complete', async (req: Request, res: Response) => {
 
     // Get public URL for the video
     const videoUrl = getVideoUrl(videoKey);
+
+    try {
+      await axios.post('http://localhost:5000/api/index-video', {
+        videoUrl: videoUrl,
+        lectureId: lectureId
+      });
+      console.log('Successfully notified Flask to start indexing.');
+    } catch (flaskError) {
+      console.error('Failed to notify Flask:', flaskError.message);
+      // We don't necessarily want to fail the whole upload if the AI trigger fails
+    }
 
     // Find or create the lecture
     const lecture = lecturer.lectures.find(l => l.lectureId === lectureId);
