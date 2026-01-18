@@ -368,6 +368,28 @@ export const getVideoStreamUrl = async (videoKey: string) => {
   }
 };
 
+// Increment segment count when student seeks to a segment
+export const incrementSegmentCount = async (courseId: string, lectureId: string, segmentIndex: number) => {
+  try {
+    const response = await fetch(`${API_URL}/courses/${courseId}/lectures/${lectureId}/segments/${segmentIndex}/increment`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to increment segment count');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Increment segment count error:', error);
+    throw error;
+  }
+};
+
 // Chat API Functions
 // Flask runs on :5001 in `npm run dev` (see package.json dev:flask)
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:5001/api';

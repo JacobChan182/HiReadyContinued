@@ -55,7 +55,8 @@ router.get('/:userId/courses', async (req: Request, res: Response) => {
           start: seg.start || seg.startTime || 0,
           end: seg.end || seg.endTime || 0,
           title: seg.title || seg.name || 'Untitled Segment',
-          summary: seg.summary || ''
+          summary: seg.summary || '',
+          count: seg.count !== undefined ? seg.count : 0
         })) : [];
 
         return {

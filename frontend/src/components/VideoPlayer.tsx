@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { motion } from 'framer-motion';
 import { useAnalytics } from '@/contexts/AnalyticsContext';
-import { getVideoStreamUrl } from '@/lib/api';
+import { getVideoStreamUrl, incrementSegmentCount } from '@/lib/api';
 import { Concept, Lecture, Course, LectureSegment } from '@/types';
 import { Play, Pause, SkipForward, BookOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -416,7 +416,7 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ lecture, cou
           
           <div 
             className="flex-1 relative cursor-pointer"
-            onClick={(e) => {
+            onClick={async (e) => {
               if (videoRef.current && videoDuration > 0) {
                 const rect = e.currentTarget.getBoundingClientRect();
                 const clickX = e.clientX - rect.left;
@@ -428,6 +428,20 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ lecture, cou
                   videoRef.current.currentTime = newTime;
                   previousTimeRef.current = newTime;
                   setCurrentTime(newTime);
+                  
+                  // Find which segment the seek time falls into and increment its count
+                  if (lecture?.lectureSegments && lecture.lectureSegments.length > 0 && course) {
+                    const segmentIndex = lecture.lectureSegments.findIndex(
+                      seg => newTime >= seg.start && newTime < seg.end
+                    );
+                    if (segmentIndex !== -1) {
+                      try {
+                        await incrementSegmentCount(course.id, lecture.id, segmentIndex);
+                      } catch (error) {
+                        console.error('Failed to increment segment count:', error);
+                      }
+                    }
+                  }
                   
                   // Track rewind if seeking backwards
                   if (newTime < previousTime && trackRewind && course && lecture) {
@@ -484,7 +498,7 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ lecture, cou
                           left: `${segmentStartPercent}%`,
                           width: `${segmentWidth}%`
                         }}
-                        onClick={(e) => {
+                        onClick={async (e) => {
                           // Forward click to progress bar for seeking
                           const progressBarContainer = e.currentTarget.parentElement?.parentElement;
                           if (progressBarContainer && videoRef.current && videoDuration > 0) {
@@ -496,6 +510,21 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ lecture, cou
                             videoRef.current.currentTime = newTime;
                             previousTimeRef.current = newTime;
                             setCurrentTime(newTime);
+                            
+                            // Find which segment the seek time falls into and increment its count
+                            if (lecture?.lectureSegments && lecture.lectureSegments.length > 0 && course) {
+                              const segmentIndex = lecture.lectureSegments.findIndex(
+                                seg => newTime >= seg.start && newTime < seg.end
+                              );
+                              if (segmentIndex !== -1) {
+                                try {
+                                  await incrementSegmentCount(course.id, lecture.id, segmentIndex);
+                                } catch (error) {
+                                  console.error('Failed to increment segment count:', error);
+                                }
+                              }
+                            }
+                            
                             trackEvent('seek', lecture.id, undefined, { action: 'segment-seek' });
                           }
                         }}

@@ -415,6 +415,64 @@ router.delete('/:courseId/students/:userId', async (req: Request, res: Response)
 });
 
 // Search for users by email
+// Increment segment count when student seeks
+router.post('/:courseId/lectures/:lectureId/segments/:segmentIndex/increment', async (req: Request, res: Response) => {
+  try {
+    const courseId = Array.isArray(req.params.courseId) ? req.params.courseId[0] : req.params.courseId;
+    const lectureId = Array.isArray(req.params.lectureId) ? req.params.lectureId[0] : req.params.lectureId;
+    const segmentIndex = parseInt(Array.isArray(req.params.segmentIndex) ? req.params.segmentIndex[0] : req.params.segmentIndex, 10);
+
+    if (isNaN(segmentIndex) || segmentIndex < 0) {
+      return res.status(400).json({ error: 'Invalid segment index' });
+    }
+
+    const course = await Course.findOne({ courseId });
+    if (!course) {
+      return res.status(404).json({ error: 'Course not found' });
+    }
+
+    const lecture = course.lectures.find(l => l.lectureId === lectureId);
+    if (!lecture) {
+      return res.status(404).json({ error: 'Lecture not found' });
+    }
+
+    // Get segments from rawAiMetaData
+    const segments = lecture.rawAiMetaData?.segments || [];
+    if (segmentIndex >= segments.length) {
+      return res.status(400).json({ error: 'Segment index out of range' });
+    }
+
+    // Initialize count if it doesn't exist
+    if (segments[segmentIndex].count === undefined) {
+      segments[segmentIndex].count = 0;
+    }
+
+    // Increment the count
+    segments[segmentIndex].count = (segments[segmentIndex].count || 0) + 1;
+
+    // Update rawAiMetaData
+    if (!lecture.rawAiMetaData) {
+      lecture.rawAiMetaData = {};
+    }
+    lecture.rawAiMetaData.segments = segments;
+
+    // Mark the lecture as modified and save
+    course.markModified('lectures');
+    await course.save();
+
+    res.status(200).json({
+      success: true,
+      data: {
+        segmentIndex,
+        count: segments[segmentIndex].count,
+      },
+    });
+  } catch (error) {
+    console.error('Error incrementing segment count:', error);
+    res.status(500).json({ error: 'Failed to increment segment count' });
+  }
+});
+
 router.get('/search/users', async (req: Request, res: Response) => {
   try {
     const { email } = req.query;

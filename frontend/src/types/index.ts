@@ -33,6 +33,7 @@ export interface LectureSegment {
   end: number;
   title: string;
   summary: string;
+  count?: number;
 }
 
 export interface Lecture {
