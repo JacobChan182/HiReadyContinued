@@ -316,6 +316,7 @@ def create_app():
                 f"selected={provider}:{model} reason={route_reason} "
                 f"err={e}"
             )
+            traceback.print_exc()
             return {"status": "error", "message": str(e)}, 500
 
         # The model/provider used may differ from the initially routed choice
