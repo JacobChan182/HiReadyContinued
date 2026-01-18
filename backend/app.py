@@ -10,7 +10,13 @@ from datetime import datetime, UTC
 import traceback
 import time
 from uuid import uuid4
-from services.video_service import start_video_indexing, index_and_segment, verify_index_configuration
+from services.video_service import (
+    start_video_indexing,
+    index_and_segment,
+    verify_index_configuration,
+    wait_for_task_completion,
+    segment_video_topics,
+)
 from services.chat_router import (
     get_allowed_llms,
     get_routing_config,
@@ -819,6 +825,64 @@ Use the get_video_rewind_data tool to fetch raw interaction data if needed, then
             "content": generated_content,
             "thread_id": str(thread.thread_id)
         })
+
+    @app.post('/api/index-video')
+    def index_video():
+        data = request.get_json(force=True) or {}
+        video_url = data.get("videoUrl") or data.get("video_url")
+        lecture_id = data.get("lectureId") or data.get("lecture_id")
+
+        if not video_url:
+            return jsonify({"status": "error", "message": "videoUrl is required"}), 400
+
+        try:
+            task_id = start_video_indexing(video_url)
+            if not task_id:
+                return jsonify({"status": "error", "message": "Failed to start indexing"}), 500
+
+            return jsonify({
+                "status": "success",
+                "task_id": task_id,
+                "lecture_id": lecture_id,
+            })
+        except Exception as e:
+            traceback.print_exc()
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.post('/api/segment-video')
+    def segment_video():
+        data = request.get_json(force=True) or {}
+        video_url = data.get("videoUrl") or data.get("video_url")
+        lecture_id = data.get("lectureId") or data.get("lecture_id")
+        video_id = data.get("videoId") or data.get("video_id")
+        task_id = data.get("taskId") or data.get("task_id")
+
+        try:
+            if not video_id:
+                if task_id:
+                    video_id = wait_for_task_completion(task_id)
+                elif video_url:
+                    task_id = start_video_indexing(video_url)
+                    if not task_id:
+                        return jsonify({"status": "error", "message": "Failed to start indexing"}), 500
+                    video_id = wait_for_task_completion(task_id)
+
+            if not video_id:
+                return jsonify({"status": "error", "message": "Failed to resolve video_id"}), 500
+
+            raw_data = segment_video_topics(video_id)
+            segments = (raw_data or {}).get("segments", [])
+
+            return jsonify({
+                "status": "success",
+                "lecture_id": lecture_id,
+                "video_id": video_id,
+                "segments": segments,
+                "rawAiMetaData": raw_data,
+            })
+        except Exception as e:
+            traceback.print_exc()
+            return jsonify({"status": "error", "message": str(e)}), 500
 
     # Simple health check
     @app.get("/health")

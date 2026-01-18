@@ -99,23 +99,28 @@ router.post('/complete', async (req: Request, res: Response) => {
     let segments: any[] = [];
     let fullAiData: any = null;
     let videoIdFromTask: string | null = null;
+    let taskIdFromTask: string | null = null;
 
     // C. Flask Integration (Single Flow)
     const health = await tryFlask(() => flask.get('/health'), 'Flask health check');
     if (health) {
       // 1. Start Indexing
-      const indexResp = await tryFlask(() => flask.post('/api/index-video', { videoUrl: signedDownloadUrl, lectureId }), 'Indexing trigger');
-      // Adjust this based on what your Flask returns. If it returns video_id, use it!
+      const indexResp = await tryFlask(
+        () => flask.post('/api/index-video', { videoUrl: signedDownloadUrl, lectureId }),
+        'Indexing trigger'
+      );
       videoIdFromTask = (indexResp as any)?.data?.video_id || null;
+      taskIdFromTask = (indexResp as any)?.data?.task_id || null;
 
       // 2. Perform Segmentation (Wait for it)
       const flaskLong = axios.create({ baseURL: FLASK_BASE_URL, timeout: 600000 }); // 10 min timeout
       try {
         console.log(`[Node] Requesting segmentation for ${lectureId}...`);
-        const segResp = await flaskLong.post('/api/segment-video', { 
-          videoUrl: signedDownloadUrl, 
+        const segResp = await flaskLong.post('/api/segment-video', {
+          videoUrl: signedDownloadUrl,
           lectureId,
-          videoId: videoIdFromTask // Pass ID if available to prevent double-indexing
+          videoId: videoIdFromTask,
+          taskId: taskIdFromTask,
         });
         
         segments = segResp.data?.segments || [];
