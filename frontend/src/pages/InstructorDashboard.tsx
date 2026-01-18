@@ -833,10 +833,6 @@ const InstructorDashboard = () => {
               <Activity className="w-4 h-4" />
               Timeline View
             </TabsTrigger>
-            <TabsTrigger value="clusters" className="flex items-center gap-2">
-              <PieIcon className="w-4 h-4" />
-              Behavioral Clusters
-            </TabsTrigger>
             <TabsTrigger value="worker-types" className="flex items-center gap-2">
               <UserCheck className="w-4 h-4" />
               Worker Types
@@ -988,123 +984,6 @@ const InstructorDashboard = () => {
                     />
                   </AreaChart>
                 </ResponsiveContainer>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Clusters Tab */}
-          <TabsContent value="clusters" className="space-y-6">
-            <div className="grid lg:grid-cols-2 gap-6">
-              {/* Cluster Distribution Pie */}
-              <Card className="glass-card">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Users className="w-5 h-5 text-primary" />
-                    Behavioral Cluster Distribution
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <PieChart>
-                      <Pie
-                        data={clusterPieData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={60}
-                        outerRadius={100}
-                        paddingAngle={5}
-                        dataKey="value"
-                      >
-                        {clusterPieData.map((_, index) => (
-                          <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: 'hsl(var(--card))',
-                          border: '1px solid hsl(var(--border))',
-                          borderRadius: '8px',
-                        }}
-                      />
-                      <Legend />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-
-              {/* Cluster Engagement Bar */}
-              <Card className="glass-card">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <BarChart2 className="w-5 h-5 text-primary" />
-                    Engagement by Cluster
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={clusterChartData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                      <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" tick={{ fontSize: 10 }} />
-                      <YAxis stroke="hsl(var(--muted-foreground))" />
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: 'hsl(var(--card))',
-                          border: '1px solid hsl(var(--border))',
-                          borderRadius: '8px',
-                        }}
-                      />
-                      <Bar dataKey="engagement" fill={CHART_COLORS[0]} name="Engagement %" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Cluster Details */}
-            <Card className="glass-card">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <BookOpen className="w-5 h-5 text-primary" />
-                  Cluster-Concept Struggle Matrix
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {clusterInsights.map((cluster, i) => (
-                    <motion.div
-                      key={cluster.cluster}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: i * 0.1 }}
-                      className="p-4 rounded-lg bg-muted/50"
-                    >
-                      <div className="flex items-center gap-2 mb-3">
-                        <div 
-                          className="w-3 h-3 rounded-full"
-                          style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }}
-                        />
-                        <span className="font-medium">
-                          {cluster.cluster.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
-                        </span>
-                        <Badge variant="outline" className="ml-auto">
-                          {cluster.studentCount} students
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground mb-2">Struggling with:</p>
-                      <div className="flex flex-wrap gap-1">
-                        {cluster.strugglingConcepts.length > 0 ? (
-                          cluster.strugglingConcepts.map(concept => (
-                            <Badge key={concept} variant="secondary" className="text-xs">
-                              {concept}
-                            </Badge>
-                          ))
-                        ) : (
-                          <span className="text-xs text-muted-foreground">No major struggles detected</span>
-                        )}
-                      </div>
-                    </motion.div>
-                  ))}
-                </div>
               </CardContent>
             </Card>
           </TabsContent>
