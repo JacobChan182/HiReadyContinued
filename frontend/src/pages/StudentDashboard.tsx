@@ -23,20 +23,38 @@ import ChatWidget from '@/components/ChatWidget';
 import { useToast } from '@/hooks/use-toast';
 import QuizDisplay from '@/components/QuizDisplay';
 
+interface QuizQuestion {
+  question: string;
+  options: string[];
+  correctAnswer: string | number;
+  explanation?: string;
+}
+
+type QuizContent = string | { questions: QuizQuestion[] };
+
+interface LectureWithMeta extends Lecture {
+  lectureId?: string;
+  lectureTitle?: string;
+  _id?: string;
+}
+
+const getLectureId = (lecture: LectureWithMeta): string | undefined =>
+  lecture.lectureId ?? lecture.id ?? lecture._id;
+
 const StudentDashboard = () => {
   const { user, logout } = useAuth();
   const { toast } = useToast();
   const [courses, setCourses] = useState<Course[]>([]);
-  const [lectures, setLectures] = useState<Lecture[]>([]);
+  const [lectures, setLectures] = useState<LectureWithMeta[]>([]);
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
-  const [selectedLecture, setSelectedLecture] = useState<Lecture | null>(null);
+  const [selectedLecture, setSelectedLecture] = useState<LectureWithMeta | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSummary, setShowSummary] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const videoPlayerRef = useRef<VideoPlayerRef | null>(null);
   const [isLoadingStream, setIsLoadingStream] = useState(false);
   const [isGeneratingQuiz, setIsGeneratingQuiz] = useState(false);
-  const [generatedQuiz, setGeneratedQuiz] = useState<any>(null);
+  const [generatedQuiz, setGeneratedQuiz] = useState<QuizContent | null>(null);
 
   // TODO: Replace with actual assessment/quiz scores from your teammate's implementation
   // Placeholder worker personality scores (0-100 for each type)
@@ -113,11 +131,12 @@ const StudentDashboard = () => {
 
         if (response.success && response.data) {
           const { courses: apiCourses, lectures: apiLectures } = response.data;
+          const safeApiLectures = Array.isArray(apiLectures) ? (apiLectures as LectureWithMeta[]) : [];
           
-          console.log('📥 Raw API lectures:', apiLectures);
+          console.log('📥 Raw API lectures:', safeApiLectures);
           
           // 1. Map and preserve ALL fields from API including segments
-          const formattedLectures = apiLectures.map((lec: any) => {
+          const formattedLectures: LectureWithMeta[] = safeApiLectures.map((lec) => {
             const formatted = {
               ...lec, // Preserve everything from API first
               id: lec.lectureId,
@@ -134,16 +153,16 @@ const StudentDashboard = () => {
             return formatted;
           });
           
-          console.log('✅ Formatted lectures with segments:', formattedLectures.map((l: any) => ({
+          console.log('✅ Formatted lectures with segments:', formattedLectures.map((l) => ({
             id: l.id,
             title: l.title,
             segmentCount: l.lectureSegments?.length || 0
           })));
 
           // 2. Enrich with mock concepts ONLY (don't let enrichment touch segments)
-          const enriched = enrichLecturesWithMockData(formattedLectures);
+          const enriched = enrichLecturesWithMockData(formattedLectures) as LectureWithMeta[];
           
-          console.log('🔧 After enrichment:', enriched.map((l: any) => ({
+          console.log('🔧 After enrichment:', enriched.map((l) => ({
             id: l.id,
             title: l.title,
             segmentCount: l.lectureSegments?.length || 0,
@@ -151,8 +170,8 @@ const StudentDashboard = () => {
           })));
           
           // 3. Merge: FORCE preserve segments and other real data from formatted
-          const finalLectures = enriched.map((enrichedLec: any) => {
-            const original = formattedLectures.find((o: any) => o.id === enrichedLec.id);
+          const finalLectures: LectureWithMeta[] = enriched.map((enrichedLec) => {
+            const original = formattedLectures.find((o) => o.id === enrichedLec.id);
             if (!original) {
               console.warn(`⚠️ No original found for enriched lecture ${enrichedLec.id}`);
               return enrichedLec;
@@ -181,7 +200,7 @@ const StudentDashboard = () => {
             return merged;
           });
 
-          console.log('🎯 Final lectures after merge:', finalLectures.map((l: any) => ({
+          console.log('🎯 Final lectures after merge:', finalLectures.map((l) => ({
             id: l.id,
             title: l.title,
             segmentCount: l.lectureSegments?.length || 0,
@@ -323,9 +342,7 @@ const StudentDashboard = () => {
     if (!selectedLecture) return;
 
     // Try multiple possible ID fields
-    const lectureId = selectedLecture.lectureId 
-      || (selectedLecture as any)._id 
-      || selectedLecture.id;
+    const lectureId = getLectureId(selectedLecture);
     
     const videoTitle = selectedLecture.lectureTitle || selectedLecture.title;
     
@@ -333,7 +350,7 @@ const StudentDashboard = () => {
       lectureId: lectureId,
       selectedLecture_lectureId: selectedLecture.lectureId,
       selectedLecture_id: selectedLecture.id,
-      selectedLecture_mongoId: (selectedLecture as any)._id,
+      selectedLecture_mongoId: selectedLecture._id,
       url: selectedLecture.videoUrl,
       title: videoTitle,
       allKeys: Object.keys(selectedLecture) // See all available keys
