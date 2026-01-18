@@ -5,9 +5,18 @@ import { useAnalytics } from '@/contexts/AnalyticsContext';
 import { mockLectures, mockCourses, enrichLecturesWithMockData } from '@/data/mockData';
 import { getStudentCourses, getVideoStreamUrl } from '@/lib/api';
 import { Concept, Lecture, Course } from '@/types';
-import { 
-  Play, Pause, SkipForward, Search, Sparkles, Clock, 
-  BookOpen, ChevronRight, Zap, LogOut, User, ChevronDown
+import {
+  Play,
+  Pause,
+  Search,
+  Sparkles,
+  Clock,
+  BookOpen,
+  ChevronRight,
+  Zap,
+  LogOut,
+  User,
+  ChevronDown,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -20,6 +29,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import ChatWidget from '@/components/ChatWidget';
 
 const StudentDashboard = () => {
   const { user, logout } = useAuth();
@@ -144,21 +154,6 @@ const StudentDashboard = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [course?.id]);
 
-  // Update selected lecture when course changes
-  useEffect(() => {
-    if (course && availableLectures.length > 0) {
-      // Check if current lecture belongs to selected course
-      const currentLectureInCourse = selectedLecture 
-        ? availableLectures.find(l => l.id === selectedLecture.id)
-        : null;
-      if (!currentLectureInCourse) {
-        // Current lecture doesn't belong to selected course, switch to first lecture in course
-        setSelectedLecture(availableLectures[0]);
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [course?.id]);
-
   const handleSwitchCourse = (courseId: string) => {
     setSelectedCourseId(courseId);
     const newCourse = courses.find(c => c.id === courseId);
@@ -249,7 +244,7 @@ const StudentDashboard = () => {
       setCurrentTime(0);
       setVideoDuration(0); // Reset duration, will be set when video metadata loads
     }
-  }, [selectedLecture?.id]);
+  }, [selectedLecture]);
 
   // Track current concept based on video time
   useEffect(() => {
@@ -493,6 +488,7 @@ const StudentDashboard = () => {
             </p>
           </div>
         ) : (
+          <>
           <div className="grid lg:grid-cols-3 gap-6">
             {/* Video Player Section */}
             <div className="lg:col-span-2 space-y-4">
@@ -556,178 +552,180 @@ const StudentDashboard = () => {
                       </div>
                     </motion.div>
                   )}
-                </div>
+                  </div>
 
-                {/* Controls */}
-                <div className="p-4 space-y-3">
-                  <div className="flex items-center gap-4">
-                    <Button 
-                      variant="ghost" 
-                      size="icon"
-                      onClick={handlePlayPause}
-                    >
-                      {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
-                    </Button>
-                    
-                    <div className="flex-1">
-                      <Progress 
-                        value={videoDuration > 0 ? (currentTime / videoDuration) * 100 : 0}
-                        className="h-2"
-                      />
+                  {/* Controls */}
+                  <div className="p-4 space-y-3">
+                    <div className="flex items-center gap-4">
+                      <Button 
+                        variant="ghost" 
+                        size="icon"
+                        onClick={handlePlayPause}
+                      >
+                        {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+                      </Button>
+                      
+                      <div className="flex-1">
+                        <Progress 
+                          value={videoDuration > 0 ? (currentTime / videoDuration) * 100 : 0}
+                          className="h-2"
+                        />
+                      </div>
+                      
+                      <span className="text-sm font-mono text-muted-foreground">
+                        {formatTime(currentTime)} / {formatTime(videoDuration)}
+                      </span>
                     </div>
-                    
-                    <span className="text-sm font-mono text-muted-foreground">
-                      {formatTime(currentTime)} / {formatTime(videoDuration)}
-                    </span>
-                  </div>
 
-                  {/* Concept timeline */}
-                  <div className="flex gap-1 h-2">
-                    {selectedLecture.concepts.map((concept, i) => (
-                      <div
-                        key={concept.id}
-                        className={`rounded-full cursor-pointer transition-all ${
-                          activeConcept?.id === concept.id 
-                            ? 'bg-primary glow' 
-                            : 'bg-muted hover:bg-muted-foreground/30'
-                        }`}
-                        style={{ 
-                          flex: videoDuration > 0 ? (concept.endTime - concept.startTime) / videoDuration : 0
-                        }}
-                        onClick={() => jumpToConcept(concept)}
-                        title={concept.name}
-                      />
-                    ))}
-                  </div>
-                </div>
-              </Card>
-            </motion.div>
-
-            {/* Lecture Info */}
-            <Card className="glass-card p-4">
-              <div className="flex items-start justify-between">
-                <div>
-                  <h1 className="text-xl font-semibold">{selectedLecture.title}</h1>
-                </div>
-                <Button onClick={generateSummary} className="gradient-bg glow">
-                  <Sparkles className="w-4 h-4 mr-2" />
-                  2-Min Catch-Up
-                </Button>
-              </div>
-            </Card>
-
-            {/* AI Summary Modal */}
-            {showSummary && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-              >
-                <Card className="glass-card p-6 border-primary/30">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Sparkles className="w-5 h-5 text-primary" />
-                    <h3 className="font-semibold">AI-Generated Summary</h3>
-                    <Badge variant="outline" className="ml-auto">
-                      <Clock className="w-3 h-3 mr-1" />
-                      2 min read
-                    </Badge>
-                  </div>
-                  <div className="space-y-3 text-muted-foreground">
-                    <p>This lecture covers the fundamentals of neural networks and machine learning optimization:</p>
-                    <ul className="space-y-2">
-                      {selectedLecture.concepts.map(concept => (
-                        <li key={concept.id} className="flex items-start gap-2">
-                          <ChevronRight className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
-                          <span><strong className="text-foreground">{concept.name}:</strong> {concept.summary}</span>
-                        </li>
+                    {/* Concept timeline */}
+                    <div className="flex gap-1 h-2">
+                      {selectedLecture.concepts.map((concept, i) => (
+                        <div
+                          key={concept.id}
+                          className={`rounded-full cursor-pointer transition-all ${
+                            activeConcept?.id === concept.id 
+                              ? 'bg-primary glow' 
+                              : 'bg-muted hover:bg-muted-foreground/30'
+                          }`}
+                          style={{ 
+                            flex: videoDuration > 0 ? (concept.endTime - concept.startTime) / videoDuration : 0
+                          }}
+                          onClick={() => jumpToConcept(concept)}
+                          title={concept.name}
+                        />
                       ))}
-                    </ul>
+                    </div>
                   </div>
-                  <Button 
-                    variant="ghost" 
-                    className="mt-4"
-                    onClick={() => setShowSummary(false)}
-                  >
-                    Close Summary
-                  </Button>
                 </Card>
               </motion.div>
-            )}
-          </div>
 
-          {/* Sidebar */}
-          <div className="space-y-4">
-            {/* Concept Search */}
-            <Card className="glass-card p-4">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search concepts..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-            </Card>
+              {/* Lecture Info */}
+              <Card className="glass-card p-4">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h1 className="text-xl font-semibold">{selectedLecture.title}</h1>
+                  </div>
+                  <Button onClick={generateSummary} className="gradient-bg glow">
+                    <Sparkles className="w-4 h-4 mr-2" />
+                    2-Min Catch-Up
+                  </Button>
+                </div>
+              </Card>
 
-            {/* Concept List */}
-            <Card className="glass-card p-4">
-              <h3 className="font-semibold mb-3 flex items-center gap-2">
-                <BookOpen className="w-4 h-4 text-primary" />
-                Lecture Concepts
-              </h3>
-              <div className="space-y-2">
-                {filteredConcepts.map((concept, i) => (
-                  <motion.div
-                    key={concept.id}
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: i * 0.05 }}
-                    onClick={() => jumpToConcept(concept)}
-                    className={`p-3 rounded-lg cursor-pointer transition-all ${
-                      activeConcept?.id === concept.id
-                        ? 'bg-primary/10 border border-primary/30'
-                        : 'bg-muted/50 hover:bg-muted'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-medium text-sm">{concept.name}</span>
-                      <Badge variant="outline" className="text-xs font-mono">
-                        {formatTime(concept.startTime)}
+              {/* AI Summary Modal */}
+              {showSummary && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                >
+                  <Card className="glass-card p-6 border-primary/30">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Sparkles className="w-5 h-5 text-primary" />
+                      <h3 className="font-semibold">AI-Generated Summary</h3>
+                      <Badge variant="outline" className="ml-auto">
+                        <Clock className="w-3 h-3 mr-1" />
+                        2 min read
                       </Badge>
                     </div>
-                    <p className="text-xs text-muted-foreground line-clamp-2">
-                      {concept.summary}
-                    </p>
-                  </motion.div>
-                ))}
-              </div>
-            </Card>
+                    <div className="space-y-3 text-muted-foreground">
+                      <p>This lecture covers the fundamentals of neural networks and machine learning optimization:</p>
+                      <ul className="space-y-2">
+                        {selectedLecture.concepts.map(concept => (
+                          <li key={concept.id} className="flex items-start gap-2">
+                            <ChevronRight className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
+                            <span><strong className="text-foreground">{concept.name}:</strong> {concept.summary}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    <Button 
+                      variant="ghost" 
+                      className="mt-4"
+                      onClick={() => setShowSummary(false)}
+                    >
+                      Close Summary
+                    </Button>
+                  </Card>
+                </motion.div>
+              )}
+            </div>
 
-            {/* Other Lectures */}
-            <Card className="glass-card p-4">
-              <h3 className="font-semibold mb-3">Other Lectures</h3>
-              <div className="space-y-2">
-                {availableLectures.filter(l => selectedLecture && l.id !== selectedLecture.id).map(lecture => (
-                  <div
-                    key={lecture.id}
-                    onClick={() => setSelectedLecture(lecture)}
-                    className="p-3 rounded-lg bg-muted/50 hover:bg-muted cursor-pointer transition-colors"
-                  >
-                    <p className="font-medium text-sm">{lecture.title}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {lecture.concepts.length} concepts{lecture.videoUrl && ' • Video'}
+            {/* Sidebar */}
+            <div className="space-y-4">
+              {/* Concept Search */}
+              <Card className="glass-card p-4">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search concepts..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+              </Card>
+
+              {/* Concept List */}
+              <Card className="glass-card p-4">
+                <h3 className="font-semibold mb-3 flex items-center gap-2">
+                  <BookOpen className="w-4 h-4 text-primary" />
+                  Lecture Concepts
+                </h3>
+                <div className="space-y-2">
+                  {filteredConcepts.map((concept, i) => (
+                    <motion.div
+                      key={concept.id}
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.05 }}
+                      onClick={() => jumpToConcept(concept)}
+                      className={`p-3 rounded-lg cursor-pointer transition-all ${
+                        activeConcept?.id === concept.id
+                          ? 'bg-primary/10 border border-primary/30'
+                          : 'bg-muted/50 hover:bg-muted'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-medium text-sm">{concept.name}</span>
+                        <Badge variant="outline" className="text-xs font-mono">
+                          {formatTime(concept.startTime)}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground line-clamp-2">
+                        {concept.summary}
+                      </p>
+                    </motion.div>
+                  ))}
+                </div>
+              </Card>
+
+              {/* Other Lectures */}
+              <Card className="glass-card p-4">
+                <h3 className="font-semibold mb-3">Other Lectures</h3>
+                <div className="space-y-2">
+                  {availableLectures.filter(l => selectedLecture && l.id !== selectedLecture.id).map(lecture => (
+                    <div
+                      key={lecture.id}
+                      onClick={() => setSelectedLecture(lecture)}
+                      className="p-3 rounded-lg bg-muted/50 hover:bg-muted cursor-pointer transition-colors"
+                    >
+                      <p className="font-medium text-sm">{lecture.title}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {lecture.concepts.length} concepts{lecture.videoUrl && ' • Video'}
+                      </p>
+                    </div>
+                  ))}
+                  {availableLectures.filter(l => selectedLecture && l.id !== selectedLecture.id).length === 0 && (
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                      No other lectures in this course
                     </p>
-                  </div>
-                ))}
-                {availableLectures.filter(l => selectedLecture && l.id !== selectedLecture.id).length === 0 && (
-                  <p className="text-sm text-muted-foreground text-center py-4">
-                    No other lectures in this course
-                  </p>
-                )}
-              </div>
-            </Card>
+                  )}
+                </div>
+              </Card>
+            </div>
           </div>
-        </div>
+          <ChatWidget lectureId={selectedLecture?.id} videoTitle={selectedLecture?.title} />
+          </>
         )}
           </>
         )}

@@ -2,12 +2,12 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 from twelvelabs import TwelveLabs
 import os
-import traceback
 from dotenv import load_dotenv
 from backboard.client import BackboardClient
 import asyncio
 from pymongo import MongoClient
 from datetime import datetime, UTC
+import traceback
 from services.video_service import start_video_indexing, index_and_segment, verify_index_configuration
 
 load_dotenv()
@@ -23,13 +23,11 @@ def create_app():
         db = None
     else:
         try:
-            # For development: allow invalid certificates to avoid SSL issues on macOS
-            # In production, you should properly configure SSL certificates
             mongo_client = MongoClient(
                 MONGODB_URI,
-                tlsAllowInvalidCertificates=True  # Only for development
+                tlsAllowInvalidCertificates=True
             )
-            # Test the connection
+            
             mongo_client.admin.command('ping')
             db = mongo_client["no-more-tears"] 
             print("✅ MongoDB connected successfully")
@@ -156,10 +154,74 @@ def create_app():
         
         if not video_id:
             return {"status": "error", "message": "video_id is required"}, 400
+
+        # Pull rewind/interactions from MongoDB (if available) so the endpoint can
+        # still return useful analytics even when the LLM call fails.
+        if db is not None:
+            interactions = list(
+                db.rewind_events.find({"video_id": video_id}, {"_id": 0}).limit(1000)
+            )
+        else:
+            interactions = []
+
+        def compute_basic_analytics(events):
+            total_events = len(events)
+            user_ids = set()
+            concept_counts = {}
+            segments = []
+
+            for e in events:
+                uid = e.get("user_id") or e.get("studentId") or e.get("student_id")
+                if uid:
+                    user_ids.add(str(uid))
+
+                concept_name = (
+                    e.get("fromConceptName")
+                    or e.get("toConceptName")
+                    or e.get("conceptName")
+                )
+                if concept_name:
+                    concept_counts[concept_name] = concept_counts.get(concept_name, 0) + 1
+
+                start_time = e.get("fromTime") or e.get("startTime")
+                end_time = e.get("toTime") or e.get("endTime")
+                if isinstance(start_time, (int, float)) and isinstance(end_time, (int, float)):
+                    segments.append(
+                        {
+                            "startTime": float(min(start_time, end_time)),
+                            "endTime": float(max(start_time, end_time)),
+                            "name": concept_name or "Segment",
+                            "rewindCount": 1,
+                        }
+                    )
+
+            total_students = len(user_ids)
+            average_rewinds = (total_events / total_students) if total_students else 0
+
+            rewind_frequency = [
+                {"conceptName": name, "rewindCount": count}
+                for name, count in sorted(concept_counts.items(), key=lambda kv: kv[1], reverse=True)[:12]
+            ]
+
+            return {
+                "totalStudents": total_students,
+                "averageRewindCount": average_rewinds,
+                "rewindFrequency": rewind_frequency,
+                "strugglingSegments": segments[:25],
+            }
+
+        analytics = compute_basic_analytics(interactions)
         
         api_key = os.getenv("BACKBOARD_API_KEY")
+        # If the LLM key is missing, still return the computed analytics.
         if not api_key:
-            return {"status": "error", "message": "Missing BACKBOARD_API_KEY env var"}, 500
+            return jsonify({
+                "status": "success",
+                "video_id": video_id,
+                "analytics": analytics,
+                "analysis": None,
+                "note": "Missing BACKBOARD_API_KEY env var; returned database-derived analytics only"
+            })
 
         # Define tools the AI can call
         tools = [{
@@ -177,76 +239,91 @@ def create_app():
             }
         }]
 
-        client = BackboardClient(api_key=api_key)
+        async def run_analysis():
+            client = BackboardClient(api_key=api_key)
 
-        assistant = asyncio.run(client.create_assistant(
-            name="Video Analysis Assistant",
-            description="An expert educational video analyst that analyzes student engagement patterns to identify difficult sections and provide actionable insights",
-            tools=tools
-        ))
-        thread = asyncio.run(client.create_thread(assistant.assistant_id))
+            assistant = await client.create_assistant(
+                name="Video Analysis Assistant",
+                description=(
+                    "An expert educational video analyst that analyzes student engagement patterns "
+                    "to identify difficult sections and provide actionable insights"
+                ),
+                tools=tools,
+            )
+            thread = await client.create_thread(assistant.assistant_id)
 
-        full_prompt = f"""
+            full_prompt = f"""
 {analysis_prompt}
 
 Video ID: {video_id}
 Video Title: {video_title}
 
-Use the get_video_rewind_data tool to fetch student interaction data, then analyze it.
+Known aggregated analytics (database-derived):
+{analytics}
+
+Use the get_video_rewind_data tool to fetch raw interaction data if needed, then provide insights.
 """
 
-        response = asyncio.run(client.add_message(
-            thread_id=thread.thread_id,
-            content=full_prompt,
-            llm_provider="openai",
-            model_name="gpt-4o",
-            stream=False
-        ))
-
-        # Check if AI wants to call a tool
-        if response.status == "REQUIRES_ACTION" and response.tool_calls:
-            tool_outputs = []
-            
-            for tc in response.tool_calls:
-                if tc.function.name == "get_video_rewind_data":
-                    # Fetch actual data from MongoDB
-                    if db is not None:
-                        interactions = list(db.rewind_events.find(
-                            {"video_id": video_id},
-                            {"_id": 0}
-                        ).limit(100))
-                    else:
-                        interactions = []
-                    
-                    tool_outputs.append({
-                        "tool_call_id": tc.id,
-                        "output": str(interactions)  # Convert to string for AI
-                    })
-            
-            # Submit tool outputs and get final response
-            final_response = asyncio.run(client.submit_tool_outputs(
+            response = await client.add_message(
                 thread_id=thread.thread_id,
-                run_id=response.run_id,
-                tool_outputs=tool_outputs
-            ))
-            
-            analysis = final_response.content
-        else:
-            analysis = response.content
+                content=full_prompt,
+                llm_provider="openai",
+                model_name="gpt-4o",
+                stream=False,
+            )
+
+            if response.status == "REQUIRES_ACTION" and response.tool_calls:
+                tool_outputs = []
+
+                for tc in response.tool_calls:
+                    if tc.function.name == "get_video_rewind_data":
+                        tool_outputs.append({
+                            "tool_call_id": tc.id,
+                            "output": str(interactions),
+                        })
+
+                final_response = await client.submit_tool_outputs(
+                    thread_id=thread.thread_id,
+                    run_id=response.run_id,
+                    tool_outputs=tool_outputs,
+                )
+                return assistant.assistant_id, thread.thread_id, final_response.content
+
+            return assistant.assistant_id, thread.thread_id, response.content
+
+        try:
+            assistant_id, thread_id, analysis = asyncio.run(run_analysis())
+        except Exception as e:
+            print(f"⚠️  analyze-video LLM call failed: {e}")
+            assistant_id = None
+            thread_id = None
+            analysis = None
+
+        assistant_id_str = str(assistant_id) if assistant_id is not None else None
+        thread_id_str = str(thread_id) if thread_id is not None else None
 
         # Save analysis to MongoDB
         if db is not None:
-            db.video_analyses.insert_one({
-                "video_id": video_id,
-                "video_title": video_title,
-                "analysis": analysis,
-                "timestamp": datetime.now(UTC)
-            })
+            try:
+                db.video_analyses.insert_one({
+                    "video_id": video_id,
+                    "video_title": video_title,
+                    "analysis": analysis,
+                    "analytics": analytics,
+                    "assistant_id": assistant_id_str,
+                    "thread_id": thread_id_str,
+                    "timestamp": datetime.now(UTC)
+                })
+            except Exception as e:
+                print(f"⚠️  Failed to persist video analysis: {e}")
 
         return jsonify({
             "status": "success",
             "video_id": video_id,
-            "analysis": analysis
+            "analytics": analytics,
+            "analysis": analysis,
+            "assistant_id": assistant_id_str,
+            "thread_id": thread_id_str,
         })
 
     @app.post('/api/backboard/generate-content')
@@ -297,22 +374,22 @@ Task: {task}
 
         client = BackboardClient(api_key=api_key)
 
-        # Create assistant for content generation
-        assistant = asyncio.run(client.create_assistant(
-            name="Educational Content Generator",
-            description=system_prompt
-        ))
-        thread = asyncio.run(client.create_thread(assistant.assistant_id))
+        async def run_generation():
+            assistant = await client.create_assistant(
+                name="Educational Content Generator",
+                description=system_prompt,
+            )
+            thread = await client.create_thread(assistant.assistant_id)
+            response = await client.add_message(
+                thread_id=thread.thread_id,
+                content=full_prompt,
+                llm_provider="openai",
+                model_name="gpt-4o",
+                stream=False,
+            )
+            return assistant, thread, response
 
-        # Generate content
-        response = asyncio.run(client.add_message(
-            thread_id=thread.thread_id,
-            content=full_prompt,
-            llm_provider="openai",
-            model_name="gpt-4o",
-            stream=False
-        ))
-
+        assistant, thread, response = asyncio.run(run_generation())
         generated_content = response.content
 
         # Save to MongoDB
@@ -331,8 +408,8 @@ Task: {task}
             "video_id": video_id,
             "content_type": content_type,
             "content": generated_content,
-            "assistant_id": assistant.assistant_id,
-            "thread_id": thread.thread_id
+            "assistant_id": str(assistant.assistant_id),
+            "thread_id": str(thread.thread_id)
         })
 
     @app.get("/health")
@@ -386,30 +463,27 @@ Task: {task}
             body = request.get_json(force=True) or {}
             video_url = body.get("videoUrl")
             lecture_id = body.get("lectureId")
-            
             if not video_url:
                 return jsonify({"error": "videoUrl is required"}), 400
-                
             print(f"[Flask] /api/segment-video lectureId={lecture_id} started")
-            
-            # 1. 'result' is now the full object: {"segments": [...]}
+
+            # 1. This returns a full object (including a "segments" list)
             result = index_and_segment(video_url)
-            
-            # 2. Extract the list just for your loop/logging
+
+            # 2. Extract the list for loop/logging
             segments_list = result.get("segments", [])
 
             print(f"[Flask] /api/segment-video lectureId={lecture_id} finished -> {len(segments_list)} segments")
             
-            # 3. Log the first few segments to be sure
+            # 3. Use the list for the loop
             for i, s in enumerate(segments_list[:5]):
                 print(f"[Flask][{i}] {s.get('start')} - {s.get('end')} :: {s.get('title')}")
 
-            # 4. Return to Express. 
-            # Rename 'result' to 'rawAiMetaData' so Express can save it directly to Mongo.
+            # 4. Return to Express (and keep full metadata for Mongo)
             return jsonify({
                 "lectureId": lecture_id, 
-                "segments": segments_list,    # Keeps frontend compatibility
-                "rawAiMetaData": result       # The full object for MongoDB
+                "segments": segments_list,
+                "rawAiMetaData": result
             }), 200
 
         except Exception as e:
