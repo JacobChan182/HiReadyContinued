@@ -524,19 +524,16 @@ const StudentDashboard = () => {
 
               {/* Lecture Info */}
               <Card className="glass-card p-4">
-                <div className="flex items-start justify-between">
-                  <div>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 min-w-0">
                     <h1 className="text-xl font-semibold">{selectedLecture.title}</h1>
                   </div>
-                  <div className="flex gap-2">
-                    <Button onClick={generateSummary} className="gradient-bg glow">
-                      <Sparkles className="w-4 h-4 mr-2" />
-                      2-Min Catch-Up
-                    </Button>
+                  <div className="flex gap-2 flex-shrink-0">
                     <Button 
                       onClick={generateQuiz} 
                       variant="outline"
                       disabled={isGeneratingQuiz}
+                      className="whitespace-nowrap"
                     >
                       {isGeneratingQuiz ? (
                         <>
