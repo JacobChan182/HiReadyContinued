@@ -24,14 +24,14 @@ if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
   }
 }
 
-// Import routes and database connection
-import connectDB from './db.js';
-import analyticsRoutes from './routes/analytics.js';
-import authRoutes from './routes/auth.js';
-import loginsRoutes from './routes/logins.js';
-import coursesRoutes from './routes/courses.js';
-import studentsRoutes from './routes/students.js';
-import uploadRoutes from './routes/upload.js';
+// Import routes and database connection from lib/ (outside api/ to avoid function limits)
+import connectDB from '../lib/db.js';
+import analyticsRoutes from '../lib/routes/analytics.js';
+import authRoutes from '../lib/routes/auth.js';
+import loginsRoutes from '../lib/routes/logins.js';
+import coursesRoutes from '../lib/routes/courses.js';
+import studentsRoutes from '../lib/routes/students.js';
+import uploadRoutes from '../lib/routes/upload.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;

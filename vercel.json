@@ -3,6 +3,11 @@
   "outputDirectory": "frontend/dist",
   "devCommand": "npm run dev:frontend",
   "installCommand": "npm install",
+  "functions": {
+    "api/index.ts": {
+      "includeFiles": "lib/**"
+    }
+  },
   "rewrites": [
     {
       "source": "/api/(.*)",
