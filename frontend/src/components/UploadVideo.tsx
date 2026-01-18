@@ -165,7 +165,8 @@ const UploadVideo = ({ courseId, onUploadComplete }: UploadVideoProps) => {
     <>
       <Button
         onClick={() => setIsOpen(true)}
-        className="gradient-bg"
+        size="sm"
+        className="h-9 gradient-bg"
       >
         <Upload className="w-4 h-4 mr-2" />
         Upload Video

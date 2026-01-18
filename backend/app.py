@@ -26,13 +26,18 @@ def create_app():
 
     # When MongoDB is not configured, we still support multi-chat sessions during
     # this server process lifetime.
-    in_memory_sessions = {}
+    in_memory_sessions = {
+        "student": {},
+        "instructor": {},
+    }
 
     MONGODB_URI = os.getenv("MONGODB_URI")
     if not MONGODB_URI:
         print("Warning: MONGODB_URI not set. Chat history will not be saved.")
         mongo_client = None
         db = None
+        chat_db_student = None
+        chat_db_instructor = None
     else:
         try:
             mongo_client = MongoClient(
@@ -41,13 +46,32 @@ def create_app():
             )
             
             mongo_client.admin.command('ping')
-            db = mongo_client["no-more-tears"] 
+            # Main DB (existing collections like rewind_events live here)
+            db = mongo_client["no-more-tears"]
+
+            # Chat DBs separated by role
+            chat_db_student = mongo_client["no-more-tears-student"]
+            chat_db_instructor = mongo_client["no-more-tears-instructor"]
             print("✅ MongoDB connected successfully")
         except Exception as e:
             print(f"⚠️  MongoDB connection failed: {e}")
             print("⚠️  Chat history will not be saved.")
             mongo_client = None
             db = None
+            chat_db_student = None
+            chat_db_instructor = None
+
+    def resolve_chat_role(value: str | None) -> str:
+        role = (value or "student").strip().lower()
+        if role not in {"student", "instructor"}:
+            return "student"
+        return role
+
+    def get_chat_db(user_role: str | None):
+        role = resolve_chat_role(user_role)
+        if role == "instructor":
+            return chat_db_instructor, role
+        return chat_db_student, role
 
     # Initialize Twelve Labs client
     TWELVELABS_API_KEY = os.getenv("TWELVELABS_API_KEY")
@@ -62,6 +86,9 @@ def create_app():
         user_id = data.get("user_id")
         if not user_id:
             return {"status": "error", "message": "user_id is required"}, 400
+
+        user_role = resolve_chat_role(data.get("user_role") or data.get("role"))
+        chat_db, _ = get_chat_db(user_role)
 
         session_id = data.get("session_id") or str(uuid4())
         session_title = (
@@ -142,24 +169,26 @@ def create_app():
             return {"status": "error", "message": "Unsupported provider/model"}, 400
 
         existing_session = None
-        if db is not None:
-            existing_session = db.chat_sessions.find_one(
+        if chat_db is not None:
+            existing_session = chat_db.chat_sessions.find_one(
                 {"user_id": user_id, "session_id": session_id},
                 {"_id": 0},
             )
         else:
-            candidate = in_memory_sessions.get(session_id)
+            candidate = in_memory_sessions.get(user_role, {}).get(session_id)
             if candidate and candidate.get("user_id") == user_id:
                 existing_session = candidate
 
         existing_assistant_id = (existing_session or {}).get("assistant_id")
         existing_thread_id = (existing_session or {}).get("thread_id")
+        existing_title = (existing_session or {}).get("title")
 
         now = datetime.now(UTC)
 
-        if db is not None:
-            db.chat_messages.insert_one({
+        if chat_db is not None:
+            chat_db.chat_messages.insert_one({
                 "user_id": user_id,
+                "user_role": user_role,
                 "session_id": session_id,
                 "role": "user",
                 "content": user_message,
@@ -285,7 +314,11 @@ def create_app():
 
         # Persist session + assistant response
         if db is not None:
-            db.chat_sessions.update_one(
+            # Persist sessions in the chat DB, not the main DB
+            chat_db_target, _ = get_chat_db(user_role)
+            if chat_db_target is not None:
+                resolved_title = existing_title or session_title
+                chat_db_target.chat_sessions.update_one(
                 {"user_id": user_id, "session_id": session_id},
                 {
                     "$setOnInsert": {
@@ -293,7 +326,9 @@ def create_app():
                     },
                     "$set": {
                         "updated_at": now,
-                        "title": session_title,
+                            # Avoid clobbering an existing custom title when the
+                            # client doesn't provide one on the first message.
+                            "title": resolved_title,
                         "assistant_id": resolved_assistant_id,
                         "thread_id": resolved_thread_id,
                     },
@@ -301,8 +336,10 @@ def create_app():
                 upsert=True,
             )
 
-            db.chat_messages.insert_one({
+            if chat_db_target is not None:
+                chat_db_target.chat_messages.insert_one({
                 "user_id": user_id,
+                "user_role": user_role,
                 "session_id": session_id,
                 "role": "assistant",
                 "content": ai_response,
@@ -319,10 +356,11 @@ def create_app():
                 "timestamp": datetime.now(UTC),
             })
         else:
-            in_memory_sessions[session_id] = {
+            in_memory_sessions.setdefault(user_role, {})[session_id] = {
                 "user_id": user_id,
+                "user_role": user_role,
                 "session_id": session_id,
-                "title": session_title,
+                "title": existing_title or session_title,
                 "assistant_id": resolved_assistant_id,
                 "thread_id": resolved_thread_id,
                 "updated_at": now,
@@ -343,21 +381,24 @@ def create_app():
     @app.get('/api/backboard/chat/sessions/<user_id>')
     def list_chat_sessions(user_id):
         """List chat sessions for a user (used to support multiple chat topics)."""
-        if db is None:
+        user_role = resolve_chat_role(request.args.get("user_role") or request.args.get("role"))
+        chat_db, _ = get_chat_db(user_role)
+
+        if chat_db is None:
             sessions = [
                 {
                     "session_id": s.get("session_id"),
                     "title": s.get("title"),
                     "updated_at": s.get("updated_at"),
                 }
-                for s in in_memory_sessions.values()
+                for s in in_memory_sessions.get(user_role, {}).values()
                 if s.get("user_id") == user_id
             ]
             sessions.sort(key=lambda s: s.get("updated_at") or datetime.min, reverse=True)
             return jsonify({"status": "success", "user_id": user_id, "sessions": sessions})
 
         sessions = list(
-            db.chat_sessions.find({"user_id": user_id}, {"_id": 0})
+            chat_db.chat_sessions.find({"user_id": user_id}, {"_id": 0})
             .sort("updated_at", -1)
             .limit(50)
         )
@@ -371,6 +412,9 @@ def create_app():
         if not user_id:
             return {"status": "error", "message": "user_id is required"}, 400
 
+        user_role = resolve_chat_role(body.get("user_role") or body.get("role"))
+        chat_db, _ = get_chat_db(user_role)
+
         session_id = str(uuid4())
         title = body.get("title") or body.get("video_title") or body.get("lecture_id") or "New chat"
         if title == "New chat":
@@ -379,6 +423,7 @@ def create_app():
 
         session_doc = {
             "user_id": user_id,
+            "user_role": user_role,
             "session_id": session_id,
             "title": title,
             "created_at": now,
@@ -387,10 +432,10 @@ def create_app():
             "thread_id": None,
         }
 
-        if db is not None:
-            db.chat_sessions.insert_one(session_doc)
+        if chat_db is not None:
+            chat_db.chat_sessions.insert_one(session_doc)
         else:
-            in_memory_sessions[session_id] = session_doc
+            in_memory_sessions.setdefault(user_role, {})[session_id] = session_doc
 
         # PyMongo will add an ObjectId _id field to the inserted dict if it was
         # missing; Flask can't JSON-serialize ObjectId.
@@ -404,26 +449,32 @@ def create_app():
         if not user_id or not session_id:
             return {"status": "error", "message": "user_id and session_id are required"}, 400
 
-        if db is None:
-            existing = in_memory_sessions.get(session_id)
+        user_role = resolve_chat_role(request.args.get("user_role") or request.args.get("role"))
+        chat_db, _ = get_chat_db(user_role)
+
+        if chat_db is None:
+            existing = in_memory_sessions.get(user_role, {}).get(session_id)
             if not existing or existing.get("user_id") != user_id:
                 return {"status": "error", "message": "Session not found"}, 404
-            in_memory_sessions.pop(session_id, None)
+            in_memory_sessions.get(user_role, {}).pop(session_id, None)
             return jsonify({"status": "success", "deleted": True, "session_id": session_id})
 
         # MongoDB-backed: delete both the session and all its messages
-        session_result = db.chat_sessions.delete_one({"user_id": user_id, "session_id": session_id})
+        session_result = chat_db.chat_sessions.delete_one({"user_id": user_id, "session_id": session_id})
         if session_result.deleted_count == 0:
             return {"status": "error", "message": "Session not found"}, 404
 
-        db.chat_messages.delete_many({"user_id": user_id, "session_id": session_id})
+        chat_db.chat_messages.delete_many({"user_id": user_id, "session_id": session_id})
 
         return jsonify({"status": "success", "deleted": True, "session_id": session_id})
 
     @app.get('/api/backboard/chat/history/<user_id>')
     def get_chat_history(user_id):
         """Get chat history for a specific user"""
-        if db is None:
+        user_role = resolve_chat_role(request.args.get("user_role") or request.args.get("role"))
+        chat_db, _ = get_chat_db(user_role)
+
+        if chat_db is None:
             return {"status": "error", "message": "MongoDB not configured"}, 500
         
         limit = request.args.get('limit', 50, type=int)
@@ -435,7 +486,7 @@ def create_app():
         if session_id:
             query["session_id"] = session_id
         
-        messages = list(db.chat_messages.find(
+        messages = list(chat_db.chat_messages.find(
             query,
             {"_id": 0}  
         ).sort("timestamp", -1).skip(skip).limit(limit))

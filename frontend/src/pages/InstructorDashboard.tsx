@@ -11,7 +11,7 @@ import {
 } from 'recharts';
 import { 
   Zap, LogOut, Users, TrendingUp, AlertTriangle, BookOpen, 
-  BarChart2, PieChart as PieIcon, Activity, Shield, Eye, Plus, ArrowRight, Settings, X, Save
+  BarChart2, PieChart as PieIcon, Activity, Shield, Eye, Plus, ArrowRight, Settings, X, Save, ChevronDown
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,6 +21,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import UploadVideo from '@/components/UploadVideo';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import ChatWidget from '@/components/ChatWidget';
 
 const CHART_COLORS = [
   'hsl(173, 80%, 40%)',
@@ -37,6 +46,7 @@ const InstructorDashboard = () => {
   const [selectedLecture, setSelectedLecture] = useState<Lecture | null>(null);
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
   const [isCourseDialogOpen, setIsCourseDialogOpen] = useState(false);
+  const [courseDialogTab, setCourseDialogTab] = useState<'switch' | 'create'>('switch');
   const [isCourseActionDialogOpen, setIsCourseActionDialogOpen] = useState(false);
   const [clickedCourseId, setClickedCourseId] = useState<string | null>(null);
   const [isCourseSettingsOpen, setIsCourseSettingsOpen] = useState(false);
@@ -162,6 +172,11 @@ const InstructorDashboard = () => {
     }
     setIsCourseDialogOpen(false);
     setIsCourseActionDialogOpen(false);
+  };
+
+  const openCourseManager = (tab: 'switch' | 'create' = 'switch') => {
+    setCourseDialogTab(tab);
+    setIsCourseDialogOpen(true);
   };
 
   const handleCourseClick = (courseId: string) => {
@@ -499,15 +514,55 @@ const InstructorDashboard = () => {
                 animate={{ opacity: 1, y: 0 }}
                 className="mb-6"
               >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <button
-                      onClick={() => setIsCourseDialogOpen(true)}
-                      className="text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer hover:underline"
-                    >
-                      {course.code}
-                    </button>
-                    <h1 className="text-2xl font-bold">{course.name}</h1>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex flex-col gap-3">
+                    <div className="flex items-center gap-2">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="outline" size="sm" className="h-9">
+                            <span className="font-medium">{course.code}</span>
+                            <ChevronDown className="ml-2 h-4 w-4 text-muted-foreground" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" className="w-[320px]">
+                          <DropdownMenuLabel>Courses</DropdownMenuLabel>
+                          <DropdownMenuSeparator />
+                          {courses.length === 0 ? (
+                            <DropdownMenuItem disabled>No courses yet</DropdownMenuItem>
+                          ) : (
+                            courses.map((c) => (
+                              <DropdownMenuItem
+                                key={c.id}
+                                onSelect={() => handleSwitchCourse(c.id)}
+                                className={c.id === course.id ? 'bg-muted' : undefined}
+                              >
+                                <div className="flex w-full items-center justify-between gap-3">
+                                  <div className="font-medium">{c.code}</div>
+                                  {c.id === course.id && (
+                                    <Badge variant="outline" className="shrink-0">Current</Badge>
+                                  )}
+                                </div>
+                              </DropdownMenuItem>
+                            ))
+                          )}
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onSelect={() => openCourseManager('switch')}>
+                            Manage courses…
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+
+                      <Button
+                        size="sm"
+                        variant="default"
+                        onClick={() => openCourseManager('create')}
+                        className="h-9 gradient-bg"
+                      >
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add
+                      </Button>
+                    </div>
+                    <h1 className="text-2xl font-bold leading-tight mt-0.5">{course.name}</h1>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
                     {lectures
@@ -873,7 +928,7 @@ const InstructorDashboard = () => {
             </DialogDescription>
           </DialogHeader>
 
-          <Tabs defaultValue="switch" className="w-full">
+          <Tabs value={courseDialogTab} onValueChange={(v) => setCourseDialogTab(v as 'switch' | 'create')} className="w-full">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="switch">Switch Course</TabsTrigger>
               <TabsTrigger value="create">Create New</TabsTrigger>
@@ -887,10 +942,15 @@ const InstructorDashboard = () => {
                   </p>
                 ) : (
                   courses.map((c) => (
-                    <motion.button
+                    <motion.div
                       key={c.id}
-                      onClick={() => handleCourseClick(c.id)}
-                      className={`w-full p-4 rounded-lg border text-left transition-all ${
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => handleSwitchCourse(c.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') handleSwitchCourse(c.id);
+                      }}
+                      className={`group w-full p-4 rounded-lg border text-left transition-all ${
                         c.id === course?.id
                           ? 'border-primary bg-primary/10'
                           : 'border-border hover:border-primary/50 hover:bg-muted/50'
@@ -901,19 +961,33 @@ const InstructorDashboard = () => {
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="font-medium">{c.code}</p>
-                          <p className="text-sm text-muted-foreground">{c.name}</p>
                           <p className="text-xs text-muted-foreground mt-1">
                             {c.lectureIds.length} lecture{c.lectureIds.length !== 1 ? 's' : ''}
                           </p>
                         </div>
-                        {c.id === course?.id && (
-                          <Badge variant="default">Current</Badge>
-                        )}
-                        {c.id !== course?.id && (
-                          <ArrowRight className="w-4 h-4 text-muted-foreground" />
-                        )}
+                        <div className="flex items-center gap-2">
+                          {c.id === course?.id && (
+                            <Badge variant="default">Current</Badge>
+                          )}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setClickedCourseId(c.id);
+                              setIsCourseDialogOpen(false);
+                              setIsCourseActionDialogOpen(true);
+                            }}
+                            aria-label={`Edit ${c.code}`}
+                          >
+                            <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                          </Button>
+                        </div>
                       </div>
-                    </motion.button>
+                    </motion.div>
                   ))
                 )}
               </div>
@@ -1121,6 +1195,11 @@ const InstructorDashboard = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      <ChatWidget
+        lectureId={selectedLecture?.id}
+        videoTitle={selectedLecture?.title}
+      />
     </div>
   );
 };

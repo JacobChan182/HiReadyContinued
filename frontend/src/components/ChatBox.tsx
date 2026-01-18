@@ -100,7 +100,7 @@ const ChatBox = ({ lectureId, videoTitle, className = '' }: ChatBoxProps) => {
     const loadSessions = async () => {
       try {
         setIsLoadingSessions(true);
-        const s = await getChatSessions(user.id);
+        const s = await getChatSessions(user.id, user.role);
         setSessions(Array.isArray(s) ? s : []);
 
         // Default to most recent session (if any)
@@ -133,7 +133,7 @@ const ChatBox = ({ lectureId, videoTitle, className = '' }: ChatBoxProps) => {
           return;
         }
 
-        const history = await getChatHistory(user.id, activeSessionId, 50);
+        const history = await getChatHistory(user.id, activeSessionId, 50, 0, user.role);
         if (history && Array.isArray(history)) {
           setMessages(
             history.map((msg) => ({
@@ -197,7 +197,8 @@ const ChatBox = ({ lectureId, videoTitle, className = '' }: ChatBoxProps) => {
         lectureId,
         videoTitle,
         activeSessionId,
-        routePreset
+        routePreset,
+        user.role
       );
 
       if (result?.response) {
@@ -216,7 +217,7 @@ const ChatBox = ({ lectureId, videoTitle, className = '' }: ChatBoxProps) => {
 
       // Refresh sessions list so the UI shows the new/updated session title ordering
       try {
-        const s = await getChatSessions(user.id);
+        const s = await getChatSessions(user.id, user.role);
         setSessions(Array.isArray(s) ? s : []);
       } catch {
         // ignore
@@ -245,12 +246,12 @@ const ChatBox = ({ lectureId, videoTitle, className = '' }: ChatBoxProps) => {
       setIsCreatingChat(true);
       setError(null);
 
-      const session = await createChatSession(user.id, title, lectureId, videoTitle);
+      const session = await createChatSession(user.id, title, lectureId, videoTitle, user.role);
       setIsNewChatOpen(false);
       setMessages([]);
       setActiveSessionId(session.session_id || null);
 
-      const s = await getChatSessions(user.id);
+      const s = await getChatSessions(user.id, user.role);
       setSessions(Array.isArray(s) ? s : []);
     } catch (err) {
       console.error('Failed to create chat session:', err);
@@ -268,7 +269,7 @@ const ChatBox = ({ lectureId, videoTitle, className = '' }: ChatBoxProps) => {
       setIsDeletingChat(true);
       setError(null);
 
-      await deleteChatSession(user.id, deletingId);
+      await deleteChatSession(user.id, deletingId, user.role);
 
       setSessions((prev) => {
         const nextSessions = prev.filter((s) => s.session_id !== deletingId);
@@ -282,7 +283,7 @@ const ChatBox = ({ lectureId, videoTitle, className = '' }: ChatBoxProps) => {
         return nextSessions;
       });
 
-      const s = await getChatSessions(user.id);
+      const s = await getChatSessions(user.id, user.role);
       setSessions(Array.isArray(s) ? s : []);
     } catch (err) {
       console.error('Failed to delete chat session:', err);
