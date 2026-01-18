@@ -73,15 +73,16 @@ router.post('/signup', async (req: Request, res: Response) => {
     };
 
     // Set HTTP-only cookie with user ID
-    // On Vercel, always use secure=true for HTTPS, and set domain for cross-subdomain cookies
-    const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1';
+    // On Vercel (HTTPS), always use secure=true. For local dev (HTTP), use secure=false
+    const isVercel = process.env.VERCEL === '1';
+    const isLocalDev = !isVercel && process.env.NODE_ENV !== 'production';
     res.cookie('userId', newUser._id.toString(), {
       httpOnly: true,
-      secure: isProduction, // Must be true for HTTPS (Vercel uses HTTPS)
-      sameSite: 'lax', // Allows cookies in cross-site requests (like vercel.app -> hiready.tech)
+      secure: !isLocalDev, // true on Vercel (HTTPS), false on local (HTTP)
+      sameSite: 'lax', // Allows cookies in cross-site requests
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
       path: '/',
-      // Don't set domain explicitly - let browser set it based on the request origin
+      // Don't set domain explicitly - browser will set it based on request origin
     });
 
     res.status(201).json({
@@ -164,15 +165,16 @@ router.post('/signin', async (req: Request, res: Response) => {
     };
 
     // Set HTTP-only cookie with user ID
-    // On Vercel, always use secure=true for HTTPS, and set domain for cross-subdomain cookies
-    const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1';
+    // On Vercel (HTTPS), always use secure=true. For local dev (HTTP), use secure=false
+    const isVercel = process.env.VERCEL === '1';
+    const isLocalDev = !isVercel && process.env.NODE_ENV !== 'production';
     res.cookie('userId', user._id.toString(), {
       httpOnly: true,
-      secure: isProduction, // Must be true for HTTPS (Vercel uses HTTPS)
-      sameSite: 'lax', // Allows cookies in cross-site requests (like vercel.app -> hiready.tech)
+      secure: !isLocalDev, // true on Vercel (HTTPS), false on local (HTTP)
+      sameSite: 'lax', // Allows cookies in cross-site requests
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
       path: '/',
-      // Don't set domain explicitly - let browser set it based on the request origin
+      // Don't set domain explicitly - browser will set it based on request origin
     });
 
     res.status(200).json({
@@ -199,10 +201,11 @@ router.get('/me', async (req: Request, res: Response) => {
     const user = await User.findById(userId);
     if (!user) {
       // Clear invalid cookie (must match cookie options)
-      const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1';
+      const isVercel = process.env.VERCEL === '1';
+      const isLocalDev = !isVercel && process.env.NODE_ENV !== 'production';
       res.clearCookie('userId', { 
         httpOnly: true,
-        secure: isProduction,
+        secure: !isLocalDev,
         sameSite: 'lax',
         path: '/' 
       });
@@ -233,10 +236,11 @@ router.get('/me', async (req: Request, res: Response) => {
 // Logout - clear cookie
 router.post('/logout', async (req: Request, res: Response) => {
   // Must match cookie options when clearing
-  const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1';
+  const isVercel = process.env.VERCEL === '1';
+  const isLocalDev = !isVercel && process.env.NODE_ENV !== 'production';
   res.clearCookie('userId', { 
     httpOnly: true,
-    secure: isProduction,
+    secure: !isLocalDev,
     sameSite: 'lax',
     path: '/' 
   });
