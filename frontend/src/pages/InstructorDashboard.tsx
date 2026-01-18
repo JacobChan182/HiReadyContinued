@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
 import { mockLectures, mockCourses, calculateConceptInsights, calculateClusterInsights, mockStudents, transformInstructorLectures, enrichLecturesWithMockData } from '@/data/mockData';
+import { sendChatMessage } from '@/lib/api';
 import { getInstructorLectures, createCourse, updateCourse, getCourseStudents, addStudentsToCourse, removeStudentFromCourse, getLectureWatchProgress, getLectureSegmentRewinds } from '@/lib/api';
 import { Lecture } from '@/types';
 import { useToast } from '@/hooks/use-toast';
@@ -599,12 +600,18 @@ const InstructorDashboard = () => {
         })
       : [];
 
-  const frictionSegments = useMemo(() => {
+  interface AiFrictionSegment {
+    segmentId: string;
+    name: string;
+    frictionScore: number;
+    reason?: string;
+  }
+  const [aiFrictionSegments, setAiFrictionSegments] = useState<AiFrictionSegment[]>([]);
+  // Local fallback friction calculation
+  const localFrictionSegments = useMemo(() => {
     const segments = segmentRewindData?.segments ?? [];
     if (segments.length === 0) return [];
-
     const retentionData = watchProgressData?.retentionData ?? [];
-
     const getRetentionAt = (time: number) => {
       if (retentionData.length === 0) return 0;
       let closest = retentionData[0];
@@ -615,7 +622,6 @@ const InstructorDashboard = () => {
       }
       return closest.retention ?? 0;
     };
-
     const perSegment = segments.map((seg, index) => {
       const start = seg.start ?? 0;
       const end = seg.end ?? start;
@@ -625,37 +631,86 @@ const InstructorDashboard = () => {
       const startRetention = getRetentionAt(start);
       const endRetention = getRetentionAt(end);
       const dropoffRate = Math.max(0, (startRetention - endRetention) / 100);
-
       return {
         segmentId: `${start}-${end}-${index}`,
-        index,
         name: seg.title || `Segment ${index + 1}`,
+        frictionScore: 0, // will be set below
         views,
         viewsPerMinute,
         dropoffRate,
+        reason: undefined,
       };
     });
-
-    const maxViewsPerMinute = Math.max(
-      ...perSegment.map((seg) => seg.viewsPerMinute),
-      1
-    );
-
+    const maxViewsPerMinute = Math.max(...perSegment.map((seg) => seg.viewsPerMinute), 1);
+    const allDropoffZero = perSegment.every(seg => seg.dropoffRate === 0);
     return perSegment
       .map((seg) => {
         const normalizedViews = seg.viewsPerMinute / maxViewsPerMinute;
-        const score = (0.6 * seg.dropoffRate + 0.4 * normalizedViews) * 100;
+        let score;
+        if (allDropoffZero) {
+          score = normalizedViews * 100;
+        } else {
+          score = (0.2 * seg.dropoffRate + 0.8 * normalizedViews) * 100;
+        }
         return {
           ...seg,
-          struggleScore: Math.round(score),
+          frictionScore: Math.round(score),
+          reason: allDropoffZero
+            ? 'Ranked by normalized views per minute (no drop-off detected)'
+            : 'Weighted by drop-off and normalized views per minute',
         };
       })
-      .sort((a, b) => b.struggleScore - a.struggleScore);
+      .sort((a, b) => b.frictionScore - a.frictionScore);
   }, [segmentRewindData, watchProgressData]);
 
-  const topStrugglingConcepts = frictionSegments.slice(0, 3);
+  const frictionDataKey = JSON.stringify({
+    segments: segmentRewindData?.segments ?? [],
+    retentionData: watchProgressData?.retentionData ?? [],
+  });
+
+  const [isFrictionLoading, setIsFrictionLoading] = useState(false);
+  useEffect(() => {
+    setIsFrictionLoading(true);
+    const timeout = setTimeout(() => {
+      const segments = segmentRewindData?.segments ?? [];
+      const retentionData = watchProgressData?.retentionData ?? [];
+      console.debug('[Friction AI Effect] segments:', segments, 'retentionData:', retentionData);
+      if (segments.length === 0) {
+        setAiFrictionSegments([]);
+        setIsFrictionLoading(false);
+        return;
+      }
+      const payload = {
+        segments,
+        retentionData,
+      };
+      const prompt = `You are an expert in learning analytics. Given the following video segment data and retention curve, rank the segments from hardest to easiest for students. For each segment, output a JSON array of objects with: segmentId, name, frictionScore (0-100, higher is harder), and a short reason. Use all available data and statistical analysis. Data: ${JSON.stringify(payload)}`;
+      sendChatMessage('instructor-ai', prompt, undefined, undefined, undefined, 'auto', 'instructor').then((result) => {
+        let fallback = true;
+        if (result?.response) {
+          try {
+            const parsed = JSON.parse(result.response);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setAiFrictionSegments(parsed);
+              fallback = false;
+            }
+          } catch (err) {
+            // ignore parse errors
+          }
+        }
+        if (fallback) {
+          setAiFrictionSegments(localFrictionSegments);
+        }
+        setIsFrictionLoading(false);
+      });
+    }, 1000); // 1 second debounce
+    return () => clearTimeout(timeout);
+  }, [frictionDataKey]);
+
+  const frictionList = aiFrictionSegments.length > 0 ? aiFrictionSegments : [];
+  const topStrugglingConcepts = frictionList.slice(0, 3);
   const displayedStrugglingConcepts = showAllFrictionPoints
-    ? frictionSegments
+    ? frictionList
     : topStrugglingConcepts;
 
   return (
@@ -814,7 +869,7 @@ const InstructorDashboard = () => {
           {[
             { icon: Users, label: 'Total Employees', value: mockStudents.length, color: 'text-primary' },
             { icon: Eye, label: 'Avg. Watch Rate', value: '78%', color: 'text-chart-3' },
-            { icon: AlertTriangle, label: 'Friction Points', value: frictionSegments.length, color: 'text-destructive' },
+            { icon: AlertTriangle, label: 'Friction Points', value: aiFrictionSegments.length, color: 'text-destructive' },
             { icon: Activity, label: 'Engagement Score', value: '82/100', color: 'text-chart-2' },
           ].map((stat, i) => (
             <motion.div
@@ -859,54 +914,72 @@ const InstructorDashboard = () => {
               </Card>
             )}
           </div>
-          <Card className="glass-card">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <AlertTriangle className="w-5 h-5 text-destructive" />
-                Friction Points Ranking
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {displayedStrugglingConcepts.map((concept, i) => (
-                <motion.div
-                  key={concept.segmentId}
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: i * 0.1 }}
-                  className="p-4 rounded-lg bg-muted/50"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-medium text-sm">#{i + 1} {concept.name}</span>
-                    <Badge 
-                      variant={concept.struggleScore > 60 ? 'destructive' : 'secondary'}
-                    >
-                      {Math.round(concept.struggleScore)}% friction
-                    </Badge>
+          <div style={{ position: 'relative' }}>
+            <Card className="glass-card">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <AlertTriangle className="w-5 h-5 text-destructive" />
+                  Friction Points Ranking
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {displayedStrugglingConcepts.map((concept, i) => (
+                  <motion.div
+                    key={concept.segmentId}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: i * 0.1 }}
+                    className="p-4 rounded-lg bg-muted/50"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-medium text-sm">#{i + 1} {concept.name}</span>
+                      <Badge 
+                        variant={concept.frictionScore > 60 ? 'destructive' : 'secondary'}
+                      >
+                        {Math.round(concept.frictionScore)}% friction
+                      </Badge>
+                    </div>
+                    {concept.reason && (
+                      <div className="text-xs text-muted-foreground mb-1">{concept.reason}</div>
+                    )}
+                  </motion.div>
+                ))}
+                {displayedStrugglingConcepts.length === 0 && !isFrictionLoading && (
+                  <div className="text-sm text-muted-foreground text-center py-6">
+                    No friction data available yet.
                   </div>
-                  <div className="flex gap-4 text-xs text-muted-foreground">
-                    <span>{concept.views} views</span>
-                    <span>{Math.round(concept.dropoffRate * 100)}% drop-off</span>
-                  </div>
-                </motion.div>
-              ))}
-              {displayedStrugglingConcepts.length === 0 && (
-                <div className="text-sm text-muted-foreground text-center py-6">
-                  No friction data available yet.
+                )}
+                {aiFrictionSegments.length > 3 && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => setShowAllFrictionPoints((prev) => !prev)}
+                  >
+                    {showAllFrictionPoints ? 'Show top 3' : `Show all ${aiFrictionSegments.length}`}
+                  </Button>
+                )}
+              </CardContent>
+              {isFrictionLoading && (
+                <div style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: '100%',
+                  background: 'rgba(200,200,200,0.5)',
+                  zIndex: 10,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: 'inherit',
+                }}>
+                  <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
                 </div>
               )}
-              {frictionSegments.length > 3 && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="w-full"
-                  onClick={() => setShowAllFrictionPoints((prev) => !prev)}
-                >
-                  {showAllFrictionPoints ? 'Show top 3' : `Show all ${frictionSegments.length}`}
-                </Button>
-              )}
-            </CardContent>
-          </Card>
+            </Card>
+          </div>
         </div>
 
         {/* Main Analytics */}
