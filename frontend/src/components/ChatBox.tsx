@@ -42,6 +42,11 @@ interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  meta?: {
+    provider?: string;
+    model?: string;
+    responseTimeMs?: number;
+  };
 }
 
 interface ChatBoxProps {
@@ -54,6 +59,9 @@ interface ChatHistoryMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: string | Date;
+  provider?: string;
+  model?: string;
+  response_time_ms?: number;
 }
 
 interface ChatSession {
@@ -62,16 +70,8 @@ interface ChatSession {
   updated_at?: string;
 }
 
-const makeDefaultChatTitle = (videoTitle?: string) => {
-  const base = (videoTitle || 'New chat').trim();
-  const clipped = base.length > 40 ? `${base.slice(0, 40)}…` : base;
-  const time = new Date().toLocaleString([], {
-    month: 'short',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-  return `${clipped} · ${time}`;
+const makeDefaultChatTitle = () => {
+  return 'Untitled';
 };
 
 const ChatBox = ({ lectureId, videoTitle, className = '' }: ChatBoxProps) => {
@@ -80,6 +80,7 @@ const ChatBox = ({ lectureId, videoTitle, className = '' }: ChatBoxProps) => {
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [routePreset, setRoutePreset] = useState<'auto' | 'fastest' | 'logical' | 'everyday' | 'artistic'>('auto');
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -90,7 +91,7 @@ const ChatBox = ({ lectureId, videoTitle, className = '' }: ChatBoxProps) => {
   const [isDeletingChat, setIsDeletingChat] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const defaultTitle = useMemo(() => makeDefaultChatTitle(videoTitle), [videoTitle]);
+  const defaultTitle = useMemo(() => makeDefaultChatTitle(), []);
 
   // Load available sessions when component mounts
   useEffect(() => {
@@ -139,6 +140,14 @@ const ChatBox = ({ lectureId, videoTitle, className = '' }: ChatBoxProps) => {
               role: (msg.role === 'user' || msg.role === 'assistant' ? msg.role : 'user') as 'user' | 'assistant',
               content: msg.content,
               timestamp: new Date(msg.timestamp),
+              meta:
+                msg.role === 'assistant'
+                  ? {
+                      provider: (msg as ChatHistoryMessage).provider,
+                      model: (msg as ChatHistoryMessage).model,
+                      responseTimeMs: (msg as ChatHistoryMessage).response_time_ms,
+                    }
+                  : undefined,
             }))
           );
         }
@@ -187,7 +196,8 @@ const ChatBox = ({ lectureId, videoTitle, className = '' }: ChatBoxProps) => {
         inputValue,
         lectureId,
         videoTitle,
-        activeSessionId
+        activeSessionId,
+        routePreset
       );
 
       if (result?.response) {
@@ -195,6 +205,11 @@ const ChatBox = ({ lectureId, videoTitle, className = '' }: ChatBoxProps) => {
           role: 'assistant',
           content: result.response,
           timestamp: new Date(),
+          meta: {
+            provider: result.provider,
+            model: result.model,
+            responseTimeMs: result.response_time_ms,
+          },
         };
         setMessages((prev) => [...prev, assistantMessage]);
       }
@@ -363,6 +378,23 @@ const ChatBox = ({ lectureId, videoTitle, className = '' }: ChatBoxProps) => {
               ))}
             </SelectContent>
           </Select>
+
+        <Select
+          value={routePreset}
+          onValueChange={(value) => setRoutePreset(value as typeof routePreset)}
+          disabled={isLoading}
+        >
+          <SelectTrigger className="h-9 w-[150px]">
+            <SelectValue placeholder="Mode" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="auto">Auto</SelectItem>
+            <SelectItem value="fastest">Fastest</SelectItem>
+            <SelectItem value="logical">Logical</SelectItem>
+            <SelectItem value="everyday">Everyday</SelectItem>
+            <SelectItem value="artistic">Artistic</SelectItem>
+          </SelectContent>
+        </Select>
         </div>
       </div>
 
@@ -408,6 +440,17 @@ const ChatBox = ({ lectureId, videoTitle, className = '' }: ChatBoxProps) => {
                       minute: '2-digit',
                     })}
                   </p>
+
+                  {msg.role === 'assistant' && (msg.meta?.model || msg.meta?.responseTimeMs) && (
+                    <p className="text-[11px] mt-0.5 text-slate-500">
+                      {(msg.meta?.provider && msg.meta?.model)
+                        ? `${msg.meta.provider} · ${msg.meta.model}`
+                        : (msg.meta?.model || msg.meta?.provider || '')}
+                      {typeof msg.meta?.responseTimeMs === 'number'
+                        ? ` · ${msg.meta.responseTimeMs}ms`
+                        : ''}
+                    </p>
+                  )}
                 </div>
               </div>
             ))}
