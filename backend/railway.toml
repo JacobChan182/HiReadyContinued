@@ -1,7 +1,3 @@
-[build]
-builder = "NIXPACKS"
-buildCommand = "pip install --upgrade pip && pip install -r requirements.txt"
-
 [deploy]
 startCommand = "python -m gunicorn --bind 0.0.0.0:$PORT --timeout 600 --workers 2 wsgi:app"
 restartPolicyType = "ON_FAILURE"
