@@ -1,9 +1,10 @@
 // API URL configuration
 // In development, use proxy paths
-// In production, use VITE_API_URL environment variable (must be set in Vercel)
+// In production, use VITE_API_URL if set, otherwise use relative /api (for Vercel)
+// On Vercel, frontend and API are on the same domain, so relative paths work and cookies are shared
 const DEFAULT_API_URL = import.meta.env.DEV
   ? '/api/js/api'
-  : (import.meta.env.VITE_API_URL || 'https://your-backend-domain.com/api');
+  : (import.meta.env.VITE_API_URL || '/api');
 
 const rawApiUrl = import.meta.env.VITE_API_URL || DEFAULT_API_URL;
 const API_URL = rawApiUrl
