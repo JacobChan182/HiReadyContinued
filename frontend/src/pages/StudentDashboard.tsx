@@ -454,69 +454,52 @@ const StudentDashboard = () => {
         ) : (
           <>
             {/* Course Header */}
-            {course && userCourses.length > 1 && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mb-6"
-          >
-            <Card className="glass-card p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" className="h-auto p-0 hover:bg-transparent">
-                        <div className="text-left">
-                          <p className="text-sm text-muted-foreground">{course.code}</p>
-                          <h2 className="text-2xl font-bold">{course.name}</h2>
-                        </div>
-                        <ChevronDown className="w-4 h-4 ml-2 text-muted-foreground" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" className="w-64">
-                      {userCourses.map((c) => (
-                        <DropdownMenuItem
-                          key={c.id}
-                          onClick={() => handleSwitchCourse(c.id)}
-                          className={c.id === course.id ? 'bg-primary/10' : ''}
-                        >
-                          <div className="flex flex-col">
-                            <span className="font-medium">{c.code}</span>
-                            <span className="text-xs text-muted-foreground">{c.name}</span>
-                          </div>
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+            {course && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mb-6"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex flex-col gap-3">
+                    <div className="flex items-center gap-2">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="outline" size="sm" className="h-9">
+                            <span className="font-medium">{course.code}</span>
+                            <ChevronDown className="ml-2 h-4 w-4 text-muted-foreground" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" className="w-[320px]">
+                          {userCourses.length === 0 ? (
+                            <DropdownMenuItem disabled>No courses yet</DropdownMenuItem>
+                          ) : (
+                            userCourses.map((c) => (
+                              <DropdownMenuItem
+                                key={c.id}
+                                onClick={() => handleSwitchCourse(c.id)}
+                                className={c.id === course.id ? 'bg-muted' : undefined}
+                              >
+                                <div className="flex w-full items-center justify-between gap-3">
+                                  <div className="font-medium">{c.code}</div>
+                                  {c.id === course.id && (
+                                    <Badge variant="outline" className="shrink-0">Current</Badge>
+                                  )}
+                                </div>
+                              </DropdownMenuItem>
+                            ))
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                    <h1 className="text-2xl font-bold leading-tight mt-0.5">{course.name}</h1>
+                  </div>
+                  <Badge variant="outline">
+                    {availableLectures.length} lecture{availableLectures.length !== 1 ? 's' : ''}
+                  </Badge>
                 </div>
-                <Badge variant="outline">
-                  {availableLectures.length} lecture{availableLectures.length !== 1 ? 's' : ''}
-                </Badge>
-              </div>
-            </Card>
-          </motion.div>
-        )}
-
-        {/* Course Header - Single Course or No Switcher */}
-        {course && userCourses.length <= 1 && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mb-6"
-          >
-            <Card className="glass-card p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">{course.code}</p>
-                  <h2 className="text-2xl font-bold">{course.name}</h2>
-                </div>
-                <Badge variant="outline">
-                  {availableLectures.length} lecture{availableLectures.length !== 1 ? 's' : ''}
-                </Badge>
-              </div>
-            </Card>
-          </motion.div>
-        )}
+              </motion.div>
+            )}
 
         {!selectedLecture ? (
           <div className="text-center py-12">
