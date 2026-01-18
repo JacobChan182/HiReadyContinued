@@ -191,9 +191,19 @@ router.post('/signin', async (req: Request, res: Response) => {
 // Get current user from session cookie
 router.get('/me', async (req: Request, res: Response) => {
   try {
+    // Debug: Log cookie information (only on Vercel)
+    if (process.env.VERCEL === '1') {
+      console.log('[auth/me] Cookies object:', req.cookies);
+      console.log('[auth/me] Cookie header:', req.headers.cookie);
+      console.log('[auth/me] VERCEL env:', process.env.VERCEL);
+    }
+    
     const userId = req.cookies?.userId;
 
     if (!userId) {
+      if (process.env.VERCEL === '1') {
+        console.log('[auth/me] No userId cookie found. Available cookies:', Object.keys(req.cookies || {}));
+      }
       return res.status(401).json({ error: 'Not authenticated' });
     }
 
