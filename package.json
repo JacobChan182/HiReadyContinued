@@ -12,6 +12,7 @@
     "dev:server": "npx tsx watch server/index.ts",
     "dev:mongo": "npm run dev:server",
     "build": "vite build",
+    "build:frontend": "vite build --config frontend/vite.config.ts",
     "build:dev": "vite build --mode development",
     "server": "tsx server/index.ts",
     "lint": "eslint .",

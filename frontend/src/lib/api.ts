@@ -1,6 +1,9 @@
+// API URL configuration
+// In development, use proxy paths
+// In production, use VITE_API_URL environment variable (must be set in Vercel)
 const DEFAULT_API_URL = import.meta.env.DEV
   ? '/api/js/api'
-  : 'http://localhost:3001/api';
+  : (import.meta.env.VITE_API_URL || 'https://your-backend-domain.com/api');
 
 const rawApiUrl = import.meta.env.VITE_API_URL || DEFAULT_API_URL;
 const API_URL = rawApiUrl
