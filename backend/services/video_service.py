@@ -79,7 +79,7 @@ def segment_video_topics(video_id):
         print(f"DEBUG: Starting segmentation for video_id: {video_id}")
         
         prompt = (
-            "Analyze this video and provide a list of major topics. Include the topic name, a summary/details of each topic, "
+            "Analyze this video and split it into a list of main topics. Include the topic name, a summary/details of each topic, "
             "as well as the start and end time of the video where this topic is covered in seconds. "
             "Return the response strictly as a JSON object with this structure. The variable count will always be set to 0.: "
             '{"segments": [{"count": 0, "start": 0, "end": 60, "title": "Topic Name", "summary": "..."}]}'
