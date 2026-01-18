@@ -12,6 +12,7 @@ export const signup = async (email: string, password: string, role: 'student' | 
       headers: {
         'Content-Type': 'application/json',
       },
+      credentials: 'include',
       body: JSON.stringify({ email, password, role }),
     });
 
@@ -35,6 +36,7 @@ export const signin = async (email: string, password: string, role: 'student' | 
       headers: {
         'Content-Type': 'application/json',
       },
+      credentials: 'include',
       body: JSON.stringify({ email, password, role }),
     });
 
@@ -609,6 +611,53 @@ export const getVideoAnalytics = async (
   }
 };
 
+// Get current user from session cookie
+export const getMe = async () => {
+  try {
+    const response = await fetch(`${API_URL}/auth/me`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        return { success: false, data: null };
+      }
+      throw new Error('Failed to get current user');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Get me error:', error);
+    return { success: false, data: null };
+  }
+};
+
+// Logout - clear session cookie
+export const logout = async () => {
+  try {
+    const response = await fetch(`${API_URL}/auth/logout`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to logout');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Logout error:', error);
+    throw error;
+  }
+};
+
 export const getVideoEngagementReport = async (
   lectureId: string
 ): Promise<unknown> => {
@@ -618,6 +667,7 @@ export const getVideoEngagementReport = async (
       headers: {
         'Content-Type': 'application/json',
       },
+      credentials: 'include',
     });
 
     if (!response.ok) {

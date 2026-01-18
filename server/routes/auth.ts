@@ -69,6 +69,15 @@ router.post('/signup', async (req: Request, res: Response) => {
       createdAt: newUser.createdAt,
     };
 
+    // Set HTTP-only cookie with user ID
+    res.cookie('userId', newUser._id.toString(), {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+      path: '/',
+    });
+
     res.status(201).json({
       success: true,
       message: 'User created successfully',
@@ -140,6 +149,15 @@ router.post('/signin', async (req: Request, res: Response) => {
       createdAt: user.createdAt,
     };
 
+    // Set HTTP-only cookie with user ID
+    res.cookie('userId', user._id.toString(), {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+      path: '/',
+    });
+
     res.status(200).json({
       success: true,
       message: 'Sign in successful',
@@ -149,6 +167,50 @@ router.post('/signin', async (req: Request, res: Response) => {
     console.error('Signin error:', error);
     res.status(500).json({ error: 'Failed to sign in' });
   }
+});
+
+// Get current user from session cookie
+router.get('/me', async (req: Request, res: Response) => {
+  try {
+    const userId = req.cookies?.userId;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    // Find user by ID
+    const user = await User.findById(userId);
+    if (!user) {
+      // Clear invalid cookie
+      res.clearCookie('userId', { path: '/' });
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    // Return user without password
+    const userResponse = {
+      id: user._id.toString(),
+      email: user.email,
+      role: user.role,
+      pseudonymId: user.pseudonymId,
+      courseIds: user.courseIds,
+      cluster: user.cluster,
+      createdAt: user.createdAt,
+    };
+
+    res.status(200).json({
+      success: true,
+      data: userResponse,
+    });
+  } catch (error) {
+    console.error('Get me error:', error);
+    res.status(500).json({ error: 'Failed to get user' });
+  }
+});
+
+// Logout - clear cookie
+router.post('/logout', async (req: Request, res: Response) => {
+  res.clearCookie('userId', { path: '/' });
+  res.status(200).json({ success: true, message: 'Logged out successfully' });
 });
 
 export default router;
