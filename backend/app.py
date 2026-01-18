@@ -728,20 +728,48 @@ def create_app():
         print(f"🔎 Extracted video_id: {video_id}")
         print(f"🔎 Extracted video_title: {video_title}")
 
+<<<<<<< HEAD
+=======
+        # Build topics context and get segment count
+>>>>>>> ccb58fc (updated quiz)
         topics_text = None
+        segment_count = 0
         if not topics and lecture_id:
             try:
+<<<<<<< HEAD
                 from services.data_service import get_segments_for_quiz
                 # This now calls your updated function that returns the numbered SEGMENT list
+=======
+                from services.data_service import get_segments_for_quiz, get_segments_metadata
+>>>>>>> ccb58fc (updated quiz)
                 topics_text = get_segments_for_quiz(db, lecture_id)
                 preview = topics_text[:200] + "…" if isinstance(topics_text, str) and len(topics_text) > 200 else topics_text
                 print(f"📄 Topics from DB: {preview}")
+                
+                # Get segment count for quiz generation
+                try:
+                    segments_meta = get_segments_metadata(db, lecture_id)
+                    if segments_meta:
+                        segment_count = len(segments_meta)
+                        print(f"📊 Found {segment_count} segments for quiz generation")
+                    else:
+                        # Fallback: count segments from topics_text by counting "Topic:" occurrences
+                        if isinstance(topics_text, str) and "Topic:" in topics_text:
+                            segment_count = topics_text.count("Topic:")
+                            print(f"📊 Estimated {segment_count} segments from topics text")
+                except Exception as meta_error:
+                    print(f"⚠️ Could not get segment metadata, using fallback: {meta_error}")
+                    # Fallback: count segments from topics_text
+                    if isinstance(topics_text, str) and "Topic:" in topics_text:
+                        segment_count = topics_text.count("Topic:")
+                        print(f"📊 Estimated {segment_count} segments from topics text")
             except Exception as e:
                 print(f"❌ Error fetching segments: {e}")
                 traceback.print_exc()
                 topics_text = f"Error fetching lecture content: {str(e)}"
         
         elif topics:
+<<<<<<< HEAD
             # UPDATE THIS PART: 
             # We want the manually passed topics to follow the same "Segment #X" 
             # structure so the LLM behaves the same way.
@@ -758,6 +786,13 @@ def create_app():
             
             topics_text = "\n".join(context_parts)
             print(f"📄 Formatted {len(topics)} manually passed topics into segments.")
+=======
+            topics_text = "\n\n".join([
+                f"Topic: {t.get('title')}\nDescription: {t.get('description')}"
+                for t in topics
+            ])
+            segment_count = len(topics)
+>>>>>>> ccb58fc (updated quiz)
 
         # Validate content context
         invalid_markers = (
@@ -781,16 +816,60 @@ def create_app():
 
         # System prompt/task
         if content_type == "quiz":
-            system_prompt = (
-                "You are an expert educational content creator. Your goal is to assess student "
-                "understanding of specific lecture segments."
-            )
-            # CHANGE: Removed "Generate 3-5 questions" and replaced with segment instructions
-            task = (
-                "Create a multiple-choice quiz. You MUST generate exactly one question for each "
-                "segment provided in the 'Topics' section. Ensure each question has 4 options, "
-                "one correct answer, and a brief explanation."
-            )
+            system_prompt = "You are an expert educational content creator."
+            if segment_count > 0:
+                task = f"""Generate exactly {segment_count} multiple choice quiz questions, based on what the video is trying to teach. - ONE question for EACH of the {segment_count} segments/topics listed below. 
+
+IMPORTANT: You must generate {segment_count} separate questions, one per segment Each question has 4 options. Number them Question 1, Question 2, Question 3, etc. up to Question {segment_count}.
+
+Format each question as follows:
+Question 1:
+[Question text here - do NOT include segment name or "Question:" label]
+
+A) [Option 1]
+B) [Option 2]
+C) [Option 3]
+D) [Option 4]
+
+Answer: [Letter]
+
+Question 2:
+[Question text here]
+
+A) [Option 1]
+B) [Option 2]
+C) [Option 3]
+D) [Option 4]
+
+Answer: [Letter]
+
+Continue this pattern for all {segment_count} questions. Each question should test understanding of the specific segment it corresponds to."""
+            else:
+                # Fallback if segment count not available
+                task = """Generate one multiple choice quiz question for EACH segment/topic listed below. Count the number of segments/topics and generate that many questions.
+
+Format each question as follows:
+Question 1:
+[Question text here - do NOT include segment name or "Question:" label]
+
+A) [Option 1]
+B) [Option 2]
+C) [Option 3]
+D) [Option 4]
+
+Answer: [Letter]
+
+Question 2:
+[Question text here]
+
+A) [Option 1]
+B) [Option 2]
+C) [Option 3]
+D) [Option 4]
+
+Answer: [Letter]
+
+Continue this pattern for all segments. Each question should test understanding of the specific segment it corresponds to."""
         elif content_type == "summary":
             system_prompt = "You are an expert summarizer."
             task = "Create a concise summary of the provided segments."
@@ -799,30 +878,87 @@ def create_app():
             task = "Provide study tips based on these topics."
 
         full_prompt = f"Video: {video_title}\n\nTopics:\n{topics_text}\n\nTask: {task}"
+        
+        # Debug: Log the prompt for quiz generation
+        if content_type == "quiz":
+            print(f"📝 Quiz generation prompt preview:")
+            print(f"   Segment count: {segment_count}")
+            print(f"   Task preview: {task[:200]}...")
+            print(f"   Full prompt length: {len(full_prompt)} chars")
 
-        # Call Backboard
+        # Call Backboard with retry logic
         async def run_generation():
             client = BackboardClient(api_key=api_key)
-            assistant = await client.create_assistant(
-                name="Educational Content Generator",
-                description=system_prompt,
-            )
-            thread = await client.create_thread(assistant.assistant_id)
-            response = await client.add_message(
-                thread_id=thread.thread_id,
-                content=full_prompt,
-                llm_provider="openai",
-                model_name="gpt-4o",
-                stream=False,
-            )
+            
+            # Retry logic for API calls
+            max_retries = 3
+            retry_delay = 2  # seconds
+            
+            for attempt in range(max_retries):
+                try:
+                    assistant = await client.create_assistant(
+                        name="Educational Content Generator",
+                        description=system_prompt,
+                    )
+                    break
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        print(f"⚠️ Attempt {attempt + 1} failed to create assistant, retrying in {retry_delay}s: {e}")
+                        await asyncio.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                    else:
+                        raise
+            
+            # Reset retry delay for thread creation
+            retry_delay = 2
+            for attempt in range(max_retries):
+                try:
+                    thread = await client.create_thread(assistant.assistant_id)
+                    break
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        print(f"⚠️ Attempt {attempt + 1} failed to create thread, retrying in {retry_delay}s: {e}")
+                        await asyncio.sleep(retry_delay)
+                        retry_delay *= 2
+                    else:
+                        raise
+            
+            # Reset retry delay for message
+            retry_delay = 2
+            for attempt in range(max_retries):
+                try:
+                    response = await client.add_message(
+                        thread_id=thread.thread_id,
+                        content=full_prompt,
+                        llm_provider="openai",
+                        model_name="gpt-4o",
+                        stream=False,
+                    )
+                    break
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        print(f"⚠️ Attempt {attempt + 1} failed to add message, retrying in {retry_delay}s: {e}")
+                        await asyncio.sleep(retry_delay)
+                        retry_delay *= 2
+                    else:
+                        raise
+            
             return assistant, thread, response
 
         try:
             assistant, thread, response = asyncio.run(run_generation())
         except Exception as e:
-            print(f"❌ Generation error: {e}")
+            error_msg = str(e)
+            print(f"❌ Generation error: {error_msg}")
             traceback.print_exc()
-            return jsonify({"status": "error", "message": str(e)}), 500
+            
+            # Provide user-friendly error message
+            if "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
+                user_message = "The quiz generation service is taking longer than expected. Please try again in a moment."
+            else:
+                user_message = f"Failed to generate content: {error_msg}"
+            
+            return jsonify({"status": "error", "message": user_message}), 500
 
         generated_content = response.content
 

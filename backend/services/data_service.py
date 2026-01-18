@@ -84,3 +84,46 @@ def get_segments_for_quiz(db, lecture_id):
         import traceback
         traceback.print_exc()
         return f"ERROR: Failed to read lecture content for {lecture_id}."
+
+def get_segments_metadata(db, lecture_id):
+    """Get segments metadata (index, title) for quiz tracking"""
+    if db is None:
+        return None
+    
+    if not lecture_id:
+        return None
+    
+    try:
+        # Try lecturers first
+        collection = db["lecturers"]
+        doc = collection.find_one(
+            {"lectures.lectureId": lecture_id},
+            {"lectures.$": 1}
+        )
+
+        # Fallback to courses if not found in lecturers
+        if not doc or "lectures" not in doc or not doc["lectures"]:
+            courses_col = db["courses"]
+            doc = courses_col.find_one(
+                {"lectures.lectureId": lecture_id},
+                {"lectures.$": 1}
+            )
+
+        if not doc or "lectures" not in doc or not doc["lectures"]:
+            return None
+
+        lecture_data = doc["lectures"][0]
+        raw_meta = lecture_data.get("rawAiMetaData", {})
+        segments = raw_meta.get("segments", [])
+        
+        # Return array of {index, title} for each segment
+        return [
+            {
+                "index": idx,
+                "title": seg.get("title", f"Segment {idx}"),
+            }
+            for idx, seg in enumerate(segments)
+        ]
+    except Exception as e:
+        print(f"❌ Error getting segments metadata: {e}")
+        return None

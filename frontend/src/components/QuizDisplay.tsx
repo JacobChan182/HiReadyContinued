@@ -6,13 +6,6 @@ import { Badge } from '@/components/ui/badge';
 import { CheckCircle2, XCircle, ChevronRight, RotateCcw } from 'lucide-react';
 import { LatexRenderer } from './LatexRenderer'; // removed .tsx extension
 
-interface QuizQuestion {
-    question: string;
-    options: string[];
-    correctAnswer: string; // Stored as 'A', 'B', 'C', or 'D'
-    explanation?: string;
-}
-
 // Updated interface to include the "details" array
 interface QuizDisplayProps {
     quizContent: string | { questions: any[] };
@@ -73,91 +66,9 @@ const QuizDisplay = ({ quizContent, onClose, onFinish }: QuizDisplayProps) => {
             return opts[0]?.letter || 'A';
         };
 
-        // 1) If it's a string, try JSON first; else parse markdown-ish
-        if (typeof quizContent === 'string') {
-            try {
-                const parsed = JSON.parse(quizContent);
-                if (parsed && Array.isArray(parsed.questions)) {
-                    const out: NormalizedQuestion[] = parsed.questions.map((q: any) => {
-                        const optsText: string[] =
-                            q.options ||
-                            q.answerOptions?.map((o: any) => o.text) ||
-                            [];
-                        const opts = toOptions(optsText);
-                        // prefer explicit letter on answerOptions if present
-                        const ca =
-                            q.correctAnswer ??
-                            q.answerOptions?.find((o: any) => o.isCorrect)?.letter ??
-                            q.answerOptions?.find((o: any) => o.isCorrect)?.text;
-                        const correctLetter = normalizeCorrectLetter(ca, opts);
-                        return {
-                            question: q.question,
-                            options: opts,
-                            correctLetter,
-                            explanation: q.explanation,
-                        };
-                    });
-                    return out;
-                }
-            } catch {
-                // not JSON -> fall through to text parsing
-            }
-
-            // Fallback: parse text/markdown
-            const content = String(quizContent);
-            const out: NormalizedQuestion[] = [];
-            let blocks = content.split(/(?=###?\s*Question\s*\d+)|(?=\*\*Question\s*\d+[:)]?\*\*)/i);
-            if (blocks.length <= 1) {
-                blocks = content.split(/(?=^\s*\d+\.\s*\*\*.+\*\*)/m);
-            }
-
-            blocks.forEach((block) => {
-                const trimmedBlock = block.trim();
-                if (!trimmedBlock || trimmedBlock.length < 20) return;
-                const lines = trimmedBlock.split('\n').map(l => l.trim()).filter(Boolean);
-                let questionText = '';
-                const rawOptions: string[] = [];
-                let correctAnswerLetter = '';
-                let parsingOptions = false;
-
-                lines.forEach(line => {
-                    if (/^(###?\s*)?Question\s*\d+/i.test(line)) return;
-                    if (/^\d+\.\s*\*\*.+\*\*/.test(line)) {
-                        questionText += (questionText ? ' ' : '') + line.replace(/^\d+\.\s*\*\*|\*\*$/g, '');
-                        return;
-                    }
-
-                    const optionMatch = line.match(/^[-*]?\s*([A-Da-d])\)\s*(.*)/);
-                    const answerMatch = line.match(/(?:\*\*)?Answer:(?:\*\*)?\s*([A-Da-d])/i);
-
-                    if (optionMatch) {
-                        parsingOptions = true;
-                        // Keep the full "A) ..." form so we can normalize letters reliably
-                        rawOptions.push(`${optionMatch[1].toUpperCase()}) ${optionMatch[2] || ''}`.trim());
-                    } else if (answerMatch) {
-                        correctAnswerLetter = answerMatch[1].toUpperCase();
-                    } else if (!parsingOptions && !line.startsWith('---')) {
-                        questionText += (questionText ? ' ' : '') + line.replace(/^\*\*|\*\*$/g, '');
-                    }
-                });
-
-                if (questionText && rawOptions.length > 0) {
-                    const opts = toOptions(rawOptions);
-                    const correctLetter = correctAnswerLetter || opts[0].letter;
-                    out.push({
-                        question: questionText,
-                        options: opts,
-                        correctLetter,
-                    });
-                }
-            });
-
-            return out;
-        }
-
-        // 2) Already-parsed object case
+        // 1. Handle JSON Object Input
         if (typeof quizContent === 'object' && quizContent.questions) {
-            return quizContent.questions.map((q: any, idx: number) => {
+            return quizContent.questions.map((q: any) => {
                 const optsText: string[] =
                     q.options ||
                     q.answerOptions?.map((o: any) => o.text) ||
@@ -175,6 +86,155 @@ const QuizDisplay = ({ quizContent, onClose, onFinish }: QuizDisplayProps) => {
                     explanation: q.explanation,
                 };
             });
+        }
+
+        // 2. Handle string input - try JSON first
+        if (typeof quizContent === 'string') {
+            try {
+                const parsed = JSON.parse(quizContent);
+                if (parsed && Array.isArray(parsed.questions)) {
+                    return parsed.questions.map((q: any) => {
+                        const optsText: string[] =
+                            q.options ||
+                            q.answerOptions?.map((o: any) => o.text) ||
+                            [];
+                        const opts = toOptions(optsText);
+                        const ca =
+                            q.correctAnswer ??
+                            q.answerOptions?.find((o: any) => o.isCorrect)?.letter ??
+                            q.answerOptions?.find((o: any) => o.isCorrect)?.text;
+                        const correctLetter = normalizeCorrectLetter(ca, opts);
+                        return {
+                            question: q.question,
+                            options: opts,
+                            correctLetter,
+                            explanation: q.explanation,
+                        };
+                    });
+                }
+            } catch {
+                // not JSON -> fall through to text parsing
+            }
+
+            // 3. Parse text/markdown with improved logic
+            const content = String(quizContent);
+            const questionList: NormalizedQuestion[] = [];
+
+            // Split by "Question X:" or "Question X" patterns (more aggressive splitting)
+            const questionPattern = /(?:^|\n)(?:###?\s*)?Question\s+(\d+)[:.)]?\s*(?:\n|$)/gi;
+            const matches: RegExpExecArray[] = [];
+            let match: RegExpExecArray | null;
+            const pattern = new RegExp(questionPattern);
+            
+            while ((match = pattern.exec(content)) !== null) {
+                matches.push(match);
+            }
+            
+            if (matches.length === 0) {
+                // Fallback: try splitting by numbered questions like "1. **Question**"
+                const fallbackPattern = /(?:^|\n)\s*(\d+)\.\s*\*\*.+\*\*/gi;
+                const fallbackMatches: RegExpExecArray[] = [];
+                const fallbackPatternRegex = new RegExp(fallbackPattern);
+                let fallbackMatch: RegExpExecArray | null;
+                
+                while ((fallbackMatch = fallbackPatternRegex.exec(content)) !== null) {
+                    fallbackMatches.push(fallbackMatch);
+                }
+                
+                if (fallbackMatches.length === 0) {
+                    // Last resort: treat entire content as one question
+                    const fakeMatch = /^/.exec(content);
+                    if (fakeMatch) {
+                        matches.push(fakeMatch);
+                    }
+                } else {
+                    matches.push(...fallbackMatches);
+                }
+            }
+
+            // Extract each question block
+            for (let i = 0; i < matches.length; i++) {
+                const match = matches[i];
+                if (!match || match.index === undefined) continue;
+                
+                const nextMatch = matches[i + 1];
+                const start = match.index + match[0].length; // Start after the "Question X:" header
+                const end = nextMatch && nextMatch.index !== undefined ? nextMatch.index : content.length;
+                const block = content.substring(start, end).trim();
+
+                if (!block || block.length < 20) continue;
+
+                const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
+
+                let questionText = "";
+                const rawOptions: string[] = [];
+                let correctAnswerLetter = "";
+                let parsingOptions = false;
+                let foundAnswer = false;
+
+                lines.forEach(line => {
+                    // Skip empty lines and separators
+                    if (!line || line.startsWith('---')) return;
+
+                    // Stop parsing if we've already found the answer
+                    if (foundAnswer) return;
+
+                    // Remove segment name prefixes and "*Question:*" patterns
+                    let cleanedLine = line
+                        .replace(/^[^-]+\s*-\s*\*?Question:?\*?\s*/i, '') // Remove "Segment Name - *Question:*"
+                        .replace(/^\*?Question:?\*?\s*/i, '') // Remove standalone "*Question:*" or "Question:"
+                        .replace(/^[^-]+\s*-\s*/i, '') // Remove any remaining "Segment Name -" prefix
+                        .trim();
+
+                    if (!cleanedLine) return;
+
+                    // Match answer keys like "**Answer:** B", "Answer: b", or "**Answer:** c) ..."
+                    // Only match single letter answers (A, B, C, or D)
+                    const answerMatch = cleanedLine.match(/(?:\*\*)?Answer:(?:\*\*)?\s*([A-Da-d])(?:\s|$|\)|\.)/i);
+                    
+                    if (answerMatch && !foundAnswer) {
+                        correctAnswerLetter = answerMatch[1].toUpperCase();
+                        foundAnswer = true;
+                        // Stop parsing after finding the answer
+                        return;
+                    }
+
+                    // Only parse options if we haven't found the answer yet
+                    if (!foundAnswer) {
+                        // Match options like "A) text", "a) text", or "- A) text"
+                        const optionMatch = cleanedLine.match(/^[-*]?\s*([A-Da-d])\)\s*(.*)/);
+                        
+                        if (optionMatch) {
+                            parsingOptions = true;
+                            // Only add if we don't already have 4 options
+                            if (rawOptions.length < 4) {
+                                // Keep the full "A) ..." form so we can normalize letters reliably
+                                rawOptions.push(`${optionMatch[1].toUpperCase()}) ${optionMatch[2] || ''}`.trim());
+                            }
+                        } else if (!parsingOptions) {
+                            // If we haven't hit options yet, this is the question text
+                            // Clean up any remaining markdown formatting
+                            cleanedLine = cleanedLine.replace(/^\*\*|\*\*$/g, "").replace(/^_|_$/g, "");
+                            if (cleanedLine.length > 0) {
+                                questionText += (questionText ? " " : "") + cleanedLine;
+                            }
+                        }
+                    }
+                });
+
+                // Only add question if we have both question text and options
+                if (questionText && rawOptions.length >= 2 && rawOptions.length <= 4) {
+                    const opts = toOptions(rawOptions);
+                    const correctLetter = correctAnswerLetter || opts[0]?.letter || 'A';
+                    questionList.push({
+                        question: questionText.trim(),
+                        options: opts,
+                        correctLetter,
+                    });
+                }
+            }
+
+            return questionList;
         }
 
         return [];
