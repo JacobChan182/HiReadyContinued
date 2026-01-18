@@ -340,32 +340,23 @@ const StudentDashboard = () => {
 
   const generateQuiz = async () => {
     if (!selectedLecture) return;
-
-    // Try multiple possible ID fields
+  
     const lectureId = getLectureId(selectedLecture);
-    
     const videoTitle = selectedLecture.lectureTitle || selectedLecture.title;
     
-    console.log("🚀 PAYLOAD CHECK:", {
-      lectureId: lectureId,
-      selectedLecture_lectureId: selectedLecture.lectureId,
-      selectedLecture_id: selectedLecture.id,
-      selectedLecture_mongoId: selectedLecture._id,
-      url: selectedLecture.videoUrl,
-      title: videoTitle,
-      allKeys: Object.keys(selectedLecture) // See all available keys
-    });
-
+    // Extract segments from the selected lecture
+    // Ensure we fallback to an empty array if segments aren't found
+    const segments = selectedLecture.lectureSegments || [];
+  
     if (!lectureId) {
-      console.error("❌ No valid lecture ID found. Full lecture object:", selectedLecture);
       toast({
         title: 'Error',
-        description: 'Lecture ID is missing. Cannot generate quiz. Check console for details.',
+        description: 'Lecture ID is missing.',
         variant: 'destructive',
       });
       return;
     }
-
+  
     setIsGeneratingQuiz(true);
     try {
       const response = await fetch('http://localhost:5001/api/backboard/generate-content', {
@@ -377,32 +368,25 @@ const StudentDashboard = () => {
           lecture_id: lectureId,
           video_id: selectedLecture.videoUrl,
           video_title: videoTitle,
-          content_type: 'quiz'
+          content_type: 'quiz',
+          // ADD THIS: Pass the segments to the backend
+          segments: segments 
         }),
       });
-
+  
       const data = await response.json();
       
       if (data.status === 'success') {
-        console.log("Quiz Generated:", data.content);
         setGeneratedQuiz(data.content);
-        toast({
-          title: 'Success',
-          description: 'Quiz generated successfully!',
-        });
+        toast({ title: 'Success', description: 'Quiz generated per segment!' });
       } else {
-        console.error("Error:", data.message);
-        toast({
-          title: 'Error',
-          description: data.message || 'Failed to generate quiz',
-          variant: 'destructive',
-        });
+        throw new Error(data.message);
       }
     } catch (error) {
       console.error("Network Error:", error);
       toast({
         title: 'Error',
-        description: 'Failed to connect to quiz generation service',
+        description: 'Failed to generate segment-based quiz',
         variant: 'destructive',
       });
     } finally {

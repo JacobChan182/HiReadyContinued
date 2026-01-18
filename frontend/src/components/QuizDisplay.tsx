@@ -4,7 +4,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { CheckCircle2, XCircle, ChevronRight, RotateCcw } from 'lucide-react';
-import { LatexRenderer } from './LatexRenderer.tsx';
+import { LatexRenderer } from './LatexRenderer'; // removed .tsx extension
 
 interface QuizQuestion {
     question: string;
@@ -23,86 +23,171 @@ interface QuizDisplayProps {
         percentage: number;
         details: Array<{
             question: string;
-            isCorrect: boolean;
-            userAnswer: string;
+            isCorrect: number; // store 1 or 0
+            userAnswer: string; // letter 'A' | 'B' | ...
         }>
     }) => void;
 }
+
+// Normalized internal types
+type NormalizedOption = { letter: string; text: string };
+type NormalizedQuestion = {
+    question: string;
+    options: NormalizedOption[];
+    correctLetter: string;
+    explanation?: string;
+};
+
+const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
 const QuizDisplay = ({ quizContent, onClose, onFinish }: QuizDisplayProps) => {
     const [currentQuestion, setCurrentQuestion] = useState(0);
     const [selectedAnswers, setSelectedAnswers] = useState<Record<number, string>>({});
     const [showResults, setShowResults] = useState(false);
 
-    const questions = useMemo((): QuizQuestion[] => {
-        if (typeof quizContent === 'object' && quizContent.questions) {
-            return quizContent.questions.map(q => ({
-                question: q.question,
-                options: q.options || q.answerOptions?.map((o: any) => o.text) || [],
-                correctAnswer: String(q.correctAnswer || q.answerOptions?.find((o: any) => o.isCorrect)?.letter || 'A').toUpperCase(),
-                explanation: q.explanation
-            }));
-        }
-
-        const content = String(quizContent);
-        const questionList: QuizQuestion[] = [];
-        let blocks = content.split(/(?=###?\s*Question\s*\d+)|(?=\*\*Question\s*\d+[:)]?\*\*)/i);
-
-        if (blocks.length <= 1) {
-            blocks = content.split(/(?=^\s*\d+\.\s*\*\*.+\*\*)/m);
-        }
-
-        blocks.forEach((block) => {
-            const trimmedBlock = block.trim();
-            if (!trimmedBlock || trimmedBlock.length < 20) return;
-
-            const lines = trimmedBlock.split('\n').map(l => l.trim()).filter(Boolean);
-            let questionText = "";
-            const options: string[] = [];
-            let correctAnswer = "";
-            let parsingOptions = false;
-
-            lines.forEach(line => {
-                if (/^(###?\s*)?Question\s*\d+/i.test(line)) return;
-                if (/^\d+\.\s*\*\*.+\*\*/.test(line)) {
-                    questionText += (questionText ? " " : "") + line.replace(/^\d+\.\s*\*\*|\*\*$/g, "");
-                    return;
+    const questions = useMemo((): NormalizedQuestion[] => {
+        const toOptions = (arr: string[]): NormalizedOption[] => {
+            return arr.map((raw, i) => {
+                const m = raw.match(/^\s*([A-Za-z])\)\s*(.*)$/);
+                if (m && m[1]) {
+                    const letter = m[1].toUpperCase();
+                    const text = (m[2] ?? '').trim();
+                    return { letter, text: text || raw.trim() };
                 }
+                return { letter: LETTERS[i] || String.fromCharCode(65 + i), text: raw.trim() };
+            });
+        };
 
-                const optionMatch = line.match(/^[-*]?\s*([A-Da-d])\)\s*(.*)/);
-                const answerMatch = line.match(/(?:\*\*)?Answer:(?:\*\*)?\s*([A-Da-d])/i);
+        const normalizeCorrectLetter = (ca: any, opts: NormalizedOption[]): string => {
+            if (typeof ca === 'number') {
+                return opts[ca]?.letter || 'A';
+            }
+            if (typeof ca === 'string') {
+                const s = ca.trim();
+                // direct letter
+                if (/^[A-Z]$/i.test(s)) return s.toUpperCase();
+                // match by text (exact or trimmed)
+                const hit = opts.find(o => o.text === s || o.text.replace(/^([A-Z])\)\s*/, '') === s);
+                if (hit) return hit.letter;
+            }
+            return opts[0]?.letter || 'A';
+        };
 
-                if (optionMatch) {
-                    parsingOptions = true;
-                    options.push(line.replace(/^[-*]\s*/, ""));
-                } else if (answerMatch) {
-                    correctAnswer = answerMatch[1].toUpperCase();
-                } else if (!parsingOptions && !line.startsWith('---')) {
-                    questionText += (questionText ? " " : "") + line.replace(/^\*\*|\*\*$/g, "");
+        // 1) If it's a string, try JSON first; else parse markdown-ish
+        if (typeof quizContent === 'string') {
+            try {
+                const parsed = JSON.parse(quizContent);
+                if (parsed && Array.isArray(parsed.questions)) {
+                    const out: NormalizedQuestion[] = parsed.questions.map((q: any) => {
+                        const optsText: string[] =
+                            q.options ||
+                            q.answerOptions?.map((o: any) => o.text) ||
+                            [];
+                        const opts = toOptions(optsText);
+                        // prefer explicit letter on answerOptions if present
+                        const ca =
+                            q.correctAnswer ??
+                            q.answerOptions?.find((o: any) => o.isCorrect)?.letter ??
+                            q.answerOptions?.find((o: any) => o.isCorrect)?.text;
+                        const correctLetter = normalizeCorrectLetter(ca, opts);
+                        return {
+                            question: q.question,
+                            options: opts,
+                            correctLetter,
+                            explanation: q.explanation,
+                        };
+                    });
+                    return out;
+                }
+            } catch {
+                // not JSON -> fall through to text parsing
+            }
+
+            // Fallback: parse text/markdown
+            const content = String(quizContent);
+            const out: NormalizedQuestion[] = [];
+            let blocks = content.split(/(?=###?\s*Question\s*\d+)|(?=\*\*Question\s*\d+[:)]?\*\*)/i);
+            if (blocks.length <= 1) {
+                blocks = content.split(/(?=^\s*\d+\.\s*\*\*.+\*\*)/m);
+            }
+
+            blocks.forEach((block) => {
+                const trimmedBlock = block.trim();
+                if (!trimmedBlock || trimmedBlock.length < 20) return;
+                const lines = trimmedBlock.split('\n').map(l => l.trim()).filter(Boolean);
+                let questionText = '';
+                const rawOptions: string[] = [];
+                let correctAnswerLetter = '';
+                let parsingOptions = false;
+
+                lines.forEach(line => {
+                    if (/^(###?\s*)?Question\s*\d+/i.test(line)) return;
+                    if (/^\d+\.\s*\*\*.+\*\*/.test(line)) {
+                        questionText += (questionText ? ' ' : '') + line.replace(/^\d+\.\s*\*\*|\*\*$/g, '');
+                        return;
+                    }
+
+                    const optionMatch = line.match(/^[-*]?\s*([A-Da-d])\)\s*(.*)/);
+                    const answerMatch = line.match(/(?:\*\*)?Answer:(?:\*\*)?\s*([A-Da-d])/i);
+
+                    if (optionMatch) {
+                        parsingOptions = true;
+                        // Keep the full "A) ..." form so we can normalize letters reliably
+                        rawOptions.push(`${optionMatch[1].toUpperCase()}) ${optionMatch[2] || ''}`.trim());
+                    } else if (answerMatch) {
+                        correctAnswerLetter = answerMatch[1].toUpperCase();
+                    } else if (!parsingOptions && !line.startsWith('---')) {
+                        questionText += (questionText ? ' ' : '') + line.replace(/^\*\*|\*\*$/g, '');
+                    }
+                });
+
+                if (questionText && rawOptions.length > 0) {
+                    const opts = toOptions(rawOptions);
+                    const correctLetter = correctAnswerLetter || opts[0].letter;
+                    out.push({
+                        question: questionText,
+                        options: opts,
+                        correctLetter,
+                    });
                 }
             });
 
-            if (questionText && options.length > 0) {
-                questionList.push({
-                    question: questionText,
-                    options,
-                    correctAnswer: correctAnswer || options[0].charAt(0).toUpperCase()
-                });
-            }
-        });
+            return out;
+        }
 
-        return questionList;
+        // 2) Already-parsed object case
+        if (typeof quizContent === 'object' && quizContent.questions) {
+            return quizContent.questions.map((q: any, idx: number) => {
+                const optsText: string[] =
+                    q.options ||
+                    q.answerOptions?.map((o: any) => o.text) ||
+                    [];
+                const opts = toOptions(optsText);
+                const ca =
+                    q.correctAnswer ??
+                    q.answerOptions?.find((o: any) => o.isCorrect)?.letter ??
+                    q.answerOptions?.find((o: any) => o.isCorrect)?.text;
+                const correctLetter = normalizeCorrectLetter(ca, opts);
+                return {
+                    question: q.question,
+                    options: opts,
+                    correctLetter,
+                    explanation: q.explanation,
+                };
+            });
+        }
+
+        return [];
     }, [quizContent]);
 
-    const handleSelectAnswer = (option: string) => {
-        setSelectedAnswers({ ...selectedAnswers, [currentQuestion]: option });
+    const handleSelectAnswer = (letter: string) => {
+        setSelectedAnswers({ ...selectedAnswers, [currentQuestion]: letter });
     };
 
     const calculateScore = () => {
         return questions.reduce((score, q, idx) => {
-            const userSelection = selectedAnswers[idx];
-            const userLetter = userSelection?.trim().charAt(0).toUpperCase();
-            return userLetter === q.correctAnswer ? score + 1 : score;
+            const userLetter = selectedAnswers[idx];
+            return userLetter === q.correctLetter ? score + 1 : score;
         }, 0);
     };
 
@@ -125,22 +210,17 @@ const QuizDisplay = ({ quizContent, onClose, onFinish }: QuizDisplayProps) => {
         const score = calculateScore();
         const total = questions.length;
         const percentage = Math.round((score / total) * 100);
-    
-        // Create a detailed breakdown with 1 for correct and 0 for incorrect
+
         const detailedResults = questions.map((q, idx) => {
-            const userSelection = selectedAnswers[idx];
-            const userLetter = userSelection?.trim().charAt(0).toUpperCase();
-            
-            // Convert boolean to 1 or 0
-            const isCorrectBinary = userLetter === q.correctAnswer ? 1 : 0;
-    
+            const userLetter = selectedAnswers[idx];
+            const isCorrectBinary = userLetter === q.correctLetter ? 1 : 0;
             return {
                 question: q.question,
-                isCorrect: isCorrectBinary, // Now stores 1 or 0
-                userAnswer: userSelection
+                isCorrect: isCorrectBinary,
+                userAnswer: userLetter || '',
             };
         });
-    
+
         if (onFinish) {
             onFinish({
                 score,
@@ -180,20 +260,23 @@ const QuizDisplay = ({ quizContent, onClose, onFinish }: QuizDisplayProps) => {
 
                     <div className="space-y-4 mb-6 max-h-[400px] overflow-y-auto pr-2 text-left">
                         {questions.map((q, idx) => {
-                            const userSelection = selectedAnswers[idx];
-                            const userLetter = userSelection?.trim().charAt(0).toUpperCase();
-                            const isCorrect = userLetter === q.correctAnswer;
+                            const userLetter = selectedAnswers[idx];
+                            const isCorrect = userLetter === q.correctLetter;
+                            const userOpt = q.options.find(o => o.letter === userLetter);
+                            const correctOpt = q.options.find(o => o.letter === q.correctLetter);
 
                             return (
                                 <div key={idx} className={`p-4 rounded-lg border ${isCorrect ? 'bg-green-500/5 border-green-500/20' : 'bg-red-500/5 border-red-500/20'}`}>
                                     <p className="font-medium text-sm mb-2">{q.question}</p>
                                     <div className="flex items-center gap-2 text-xs">
                                         {isCorrect ? <CheckCircle2 className="w-4 h-4 text-green-500" /> : <XCircle className="w-4 h-4 text-red-500" />}
-                                        <span>Your answer: {userSelection}</span>
+                                        <span>
+                                            Your answer: {userOpt ? `${userOpt.letter}) ${userOpt.text}` : '—'}
+                                        </span>
                                     </div>
-                                    {!isCorrect && (
+                                    {!isCorrect && correctOpt && (
                                         <p className="text-xs text-green-600 mt-1 font-semibold">
-                                            Correct: {q.options.find(o => o.startsWith(q.correctAnswer))}
+                                            Correct: {correctOpt.letter}) {correctOpt.text}
                                         </p>
                                     )}
                                 </div>
@@ -233,16 +316,17 @@ const QuizDisplay = ({ quizContent, onClose, onFinish }: QuizDisplayProps) => {
                             <LatexRenderer text={currentQ.question} />
                         </h3>
                         <div className="space-y-3">
-                            {currentQ.options.map((option, idx) => (
+                            {currentQ.options.map((opt) => (
                                 <button
-                                    key={idx}
-                                    onClick={() => handleSelectAnswer(option)}
-                                    className={`w-full text-left p-4 rounded-xl border-2 transition-all duration-200 text-sm ${selectedAnswers[currentQuestion] === option
+                                    key={opt.letter}
+                                    onClick={() => handleSelectAnswer(opt.letter)}
+                                    className={`w-full text-left p-4 rounded-xl border-2 transition-all duration-200 text-sm ${
+                                        selectedAnswers[currentQuestion] === opt.letter
                                             ? 'border-primary bg-primary/10 ring-1 ring-primary'
                                             : 'border-border hover:border-primary/40 hover:bg-muted/50'
-                                        }`}
+                                    }`}
                                 >
-                                    <LatexRenderer text={option} />
+                                    <LatexRenderer text={`${opt.letter}) ${opt.text}`} />
                                 </button>
                             ))}
                         </div>

@@ -633,17 +633,14 @@ def create_app():
             )
             thread = await client.create_thread(assistant.assistant_id)
 
-            full_prompt = f"""
-{analysis_prompt}
-
-Video ID: {video_id}
-Video Title: {video_title}
-
-Known aggregated analytics (database-derived):
-{analytics}
-
-Use the get_video_rewind_data tool to fetch raw interaction data if needed, then provide insights.
-"""
+            # Build a concise prompt using provided context
+            full_prompt = (
+                f"Video Title: {video_title}\n\n"
+                f"Task: {analysis_prompt}\n\n"
+                f"Context: Basic analytics from DB (JSON): {json.dumps(analytics)}\n\n"
+                f"If you need raw rewind events, call the tool get_video_rewind_data with video_id '{video_id}'. "
+                f"Return a concise JSON object with keys: insights, difficultSegments, recommendations."
+            )
 
             response = await client.add_message(
                 thread_id=thread.thread_id,
@@ -653,14 +650,14 @@ Use the get_video_rewind_data tool to fetch raw interaction data if needed, then
                 stream=False,
             )
 
-            if response.status == "REQUIRES_ACTION" and response.tool_calls:
+            # Handle Tool Calls / Results
+            if getattr(response, "status", None) == "REQUIRES_ACTION" and getattr(response, "tool_calls", None):
                 tool_outputs = []
-
                 for tc in response.tool_calls:
                     if tc.function.name == "get_video_rewind_data":
                         tool_outputs.append({
                             "tool_call_id": tc.id,
-                            "output": str(interactions),
+                            "output": json.dumps(interactions),
                         })
 
                 final_response = await client.submit_tool_outputs(
@@ -731,11 +728,11 @@ Use the get_video_rewind_data tool to fetch raw interaction data if needed, then
         print(f"🔎 Extracted video_id: {video_id}")
         print(f"🔎 Extracted video_title: {video_title}")
 
-        # Build topics context
         topics_text = None
         if not topics and lecture_id:
             try:
                 from services.data_service import get_segments_for_quiz
+                # This now calls your updated function that returns the numbered SEGMENT list
                 topics_text = get_segments_for_quiz(db, lecture_id)
                 preview = topics_text[:200] + "…" if isinstance(topics_text, str) and len(topics_text) > 200 else topics_text
                 print(f"📄 Topics from DB: {preview}")
@@ -743,11 +740,24 @@ Use the get_video_rewind_data tool to fetch raw interaction data if needed, then
                 print(f"❌ Error fetching segments: {e}")
                 traceback.print_exc()
                 topics_text = f"Error fetching lecture content: {str(e)}"
+        
         elif topics:
-            topics_text = "\n\n".join([
-                f"Topic: {t.get('title')}\nDescription: {t.get('description')}"
-                for t in topics
-            ])
+            # UPDATE THIS PART: 
+            # We want the manually passed topics to follow the same "Segment #X" 
+            # structure so the LLM behaves the same way.
+            context_parts = [
+                "INSTRUCTIONS: Generate exactly ONE multiple-choice question for EACH segment listed below.\n",
+                "LECTURE SEGMENTS:"
+            ]
+            
+            for i, t in enumerate(topics, 1):
+                title = t.get('title', f'Segment {i}')
+                # Check for 'description' or 'summary' to be safe
+                description = t.get('description') or t.get('summary', 'No content provided.')
+                context_parts.append(f"SEGMENT #{i}:\nTOPIC: {title}\nCONTENT: {description}\n")
+            
+            topics_text = "\n".join(context_parts)
+            print(f"📄 Formatted {len(topics)} manually passed topics into segments.")
 
         # Validate content context
         invalid_markers = (
@@ -771,14 +781,22 @@ Use the get_video_rewind_data tool to fetch raw interaction data if needed, then
 
         # System prompt/task
         if content_type == "quiz":
-            system_prompt = "You are an expert educational content creator."
-            task = "Generate 3-5 multiple choice quiz questions. Include answers."
+            system_prompt = (
+                "You are an expert educational content creator. Your goal is to assess student "
+                "understanding of specific lecture segments."
+            )
+            # CHANGE: Removed "Generate 3-5 questions" and replaced with segment instructions
+            task = (
+                "Create a multiple-choice quiz. You MUST generate exactly one question for each "
+                "segment provided in the 'Topics' section. Ensure each question has 4 options, "
+                "one correct answer, and a brief explanation."
+            )
         elif content_type == "summary":
             system_prompt = "You are an expert summarizer."
-            task = "Create a concise summary."
+            task = "Create a concise summary of the provided segments."
         else:
             system_prompt = "You are a helpful tutor."
-            task = "Provide study tips."
+            task = "Provide study tips based on these topics."
 
         full_prompt = f"Video: {video_title}\n\nTopics:\n{topics_text}\n\nTask: {task}"
 
