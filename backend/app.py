@@ -709,7 +709,7 @@ Use the get_video_rewind_data tool to fetch raw interaction data if needed, then
 
     # Generate educational content (quiz/summary)
     @app.post('/api/backboard/generate-content')
-    async def generate_educational_content():
+    def generate_educational_content():
         raw_data = request.get_data(as_text=True)
         print(f"\n📥 RAW INCOMING DATA: {raw_data}")
 
@@ -800,7 +800,7 @@ Use the get_video_rewind_data tool to fetch raw interaction data if needed, then
             return assistant, thread, response
 
         try:
-            assistant, thread, response = await run_generation()
+            assistant, thread, response = asyncio.run(run_generation())
         except Exception as e:
             print(f"❌ Generation error: {e}")
             traceback.print_exc()
