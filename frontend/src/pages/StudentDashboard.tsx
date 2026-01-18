@@ -17,6 +17,7 @@ import {
   LogOut,
   User,
   ChevronDown,
+  TrendingUp,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -49,6 +50,67 @@ const StudentDashboard = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [isLoadingStream, setIsLoadingStream] = useState(false);
+
+  // TODO: Replace with actual assessment/quiz scores from your teammate's implementation
+  // Placeholder worker personality scores (0-100 for each type)
+  const [workerPersonality] = useState({
+    achieverDreamer: 75,      // Replace with actual quiz score
+    helperMediator: 60,       // Replace with actual quiz score
+    analystInvestigator: 85,  // Replace with actual quiz score
+    championPersuader: 45,    // Replace with actual quiz score
+    individualist: 55,        // Replace with actual quiz score
+    problemSolverDetective: 70, // Replace with actual quiz score
+    challengerDebater: 50,    // Replace with actual quiz score
+  });
+
+  // Calculate percentages for pie chart
+  const workerTypes = [
+    { name: 'Achiever/Dreamer', score: workerPersonality.achieverDreamer, color: '#3b82f6' },
+    { name: 'Helper/Mediator', score: workerPersonality.helperMediator, color: '#10b981' },
+    { name: 'Analyst/Investigator', score: workerPersonality.analystInvestigator, color: '#8b5cf6' },
+    { name: 'Champion/Persuader', score: workerPersonality.championPersuader, color: '#f59e0b' },
+    { name: 'Individualist', score: workerPersonality.individualist, color: '#ec4899' },
+    { name: 'Problem Solver/Detective', score: workerPersonality.problemSolverDetective, color: '#06b6d4' },
+    { name: 'Challenger/Debater', score: workerPersonality.challengerDebater, color: '#ef4444' },
+  ];
+
+  const totalScore = workerTypes.reduce((sum, type) => sum + type.score, 0);
+  const workerTypesWithPercentages = workerTypes.map(type => ({
+    ...type,
+    percentage: totalScore > 0 ? (type.score / totalScore) * 100 : 0,
+  }));
+
+  // Get dominant worker type
+  const dominantType = workerTypesWithPercentages.reduce((prev, current) => 
+    current.percentage > prev.percentage ? current : prev
+  );
+
+  // Generate pie chart paths
+  const generatePieChart = () => {
+    let cumulativePercentage = 0;
+    return workerTypesWithPercentages.map((type) => {
+      const startAngle = (cumulativePercentage / 100) * 360;
+      cumulativePercentage += type.percentage;
+      const endAngle = (cumulativePercentage / 100) * 360;
+      
+      const startRad = (startAngle - 90) * (Math.PI / 180);
+      const endRad = (endAngle - 90) * (Math.PI / 180);
+      
+      const x1 = 50 + 45 * Math.cos(startRad);
+      const y1 = 50 + 45 * Math.sin(startRad);
+      const x2 = 50 + 45 * Math.cos(endRad);
+      const y2 = 50 + 45 * Math.sin(endRad);
+      
+      const largeArc = type.percentage > 50 ? 1 : 0;
+      
+      return {
+        ...type,
+        path: `M 50 50 L ${x1} ${y1} A 45 45 0 ${largeArc} 1 ${x2} ${y2} Z`,
+      };
+    });
+  };
+
+  const pieChartData = generatePieChart();
 
   // Fetch student courses and lectures from API
   useEffect(() => {
@@ -652,6 +714,65 @@ const StudentDashboard = () => {
 
             {/* Sidebar */}
             <div className="space-y-4">
+              {/* Worker Personality Section */}
+              <Card className="glass-card p-4">
+                <h3 className="font-semibold mb-3 flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4 text-primary" />
+                  What Kind of Worker Are You?
+                </h3>
+                
+                {/* Pie Chart */}
+                <div className="flex items-center justify-center mb-4">
+                  <svg viewBox="0 0 100 100" className="w-48 h-48">
+                    {pieChartData.map((slice, index) => (
+                      <motion.path
+                        key={slice.name}
+                        d={slice.path}
+                        fill={slice.color}
+                        initial={{ opacity: 0, scale: 0 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ delay: index * 0.1 }}
+                        className="cursor-pointer hover:opacity-80 transition-opacity"
+                        title={`${slice.name}: ${slice.percentage.toFixed(1)}%`}
+                      />
+                    ))}
+                  </svg>
+                </div>
+
+                {/* Dominant Type */}
+                <div className="mb-4 p-3 rounded-lg" style={{ backgroundColor: `${dominantType.color}15` }}>
+                  <p className="text-xs text-muted-foreground mb-1">Your Dominant Type</p>
+                  <p className="font-semibold" style={{ color: dominantType.color }}>
+                    {dominantType.name}
+                  </p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {dominantType.percentage.toFixed(1)}% of your profile
+                  </p>
+                </div>
+
+                {/* Legend */}
+                <div className="space-y-2">
+                  {workerTypesWithPercentages
+                    .sort((a, b) => b.percentage - a.percentage)
+                    .map((type) => (
+                      <div key={type.name} className="flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2">
+                          <div 
+                            className="w-3 h-3 rounded-full" 
+                            style={{ backgroundColor: type.color }}
+                          />
+                          <span className="text-muted-foreground">{type.name}</span>
+                        </div>
+                        <span className="font-mono font-medium">{type.percentage.toFixed(1)}%</span>
+                      </div>
+                    ))}
+                </div>
+
+                <p className="text-xs text-muted-foreground mt-4 pt-4 border-t">
+                  Based on your assessment results. Complete more quizzes to refine your profile.
+                </p>
+              </Card>
+
               {/* Concept Search */}
               <Card className="glass-card p-4">
                 <div className="relative">
