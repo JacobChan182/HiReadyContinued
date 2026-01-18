@@ -17,6 +17,7 @@ from services.video_service import (
     wait_for_task_completion,
     segment_video_topics,
 )
+from twelvelabs.core.api_error import ApiError
 from services.chat_router import (
     get_allowed_llms,
     get_routing_config,
@@ -845,6 +846,21 @@ Use the get_video_rewind_data tool to fetch raw interaction data if needed, then
                 "task_id": task_id,
                 "lecture_id": lecture_id,
             })
+        except ApiError as e:
+            status_code = getattr(e, "status_code", 500) or 500
+            headers = getattr(e, "headers", {}) or {}
+            body = getattr(e, "body", {}) or {}
+            retry_after = headers.get("retry-after") if status_code == 429 else None
+            message = body.get("message") or "Upstream error"
+
+            payload = {
+                "status": "error",
+                "message": message,
+            }
+            if retry_after is not None:
+                payload["retry_after"] = retry_after
+
+            return jsonify(payload), status_code
         except Exception as e:
             traceback.print_exc()
             return jsonify({"status": "error", "message": str(e)}), 500
@@ -880,6 +896,21 @@ Use the get_video_rewind_data tool to fetch raw interaction data if needed, then
                 "segments": segments,
                 "rawAiMetaData": raw_data,
             })
+        except ApiError as e:
+            status_code = getattr(e, "status_code", 500) or 500
+            headers = getattr(e, "headers", {}) or {}
+            body = getattr(e, "body", {}) or {}
+            retry_after = headers.get("retry-after") if status_code == 429 else None
+            message = body.get("message") or "Upstream error"
+
+            payload = {
+                "status": "error",
+                "message": message,
+            }
+            if retry_after is not None:
+                payload["retry_after"] = retry_after
+
+            return jsonify(payload), status_code
         except Exception as e:
             traceback.print_exc()
             return jsonify({"status": "error", "message": str(e)}), 500

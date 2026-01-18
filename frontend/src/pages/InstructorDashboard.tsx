@@ -649,43 +649,47 @@ const InstructorDashboard = () => {
                     </div>
                     <h1 className="text-2xl font-bold leading-tight mt-0.5">{course.name}</h1>
                   </div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {lectures
-                      .filter(lecture => lecture.courseId === course.id)
-                      .map(lecture => (
-                        <Button
-                          key={lecture.id}
-                          variant={selectedLecture?.id === lecture.id ? 'default' : 'outline'}
-                          size="sm"
-                          onClick={() => setSelectedLecture(lecture)}
-                          className={selectedLecture?.id === lecture.id ? 'gradient-bg' : ''}
-                        >
-                          {lecture.title.length > 20 ? lecture.title.substring(0, 20) + '...' : lecture.title}
-                        </Button>
-                      ))}
-                    <UploadVideo 
-                      courseId={course.id}
-                      onUploadComplete={(lectureId, videoUrl) => {
-                        console.log('Upload complete:', lectureId, videoUrl);
-                        // Refresh lectures after upload
-                        if (user) {
-                          getInstructorLectures(user.id)
-                            .then(response => {
-                              if (response.success && response.data) {
-                                const { lectures: transformedLectures } = transformInstructorLectures(response);
-                                const enrichedLectures = enrichLecturesWithMockData(transformedLectures);
-                                setLectures(enrichedLectures);
-                                if (enrichedLectures.length > 0 && !selectedLecture) {
-                                  setSelectedLecture(enrichedLectures[0]);
+                  <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0 justify-end">
+                      {lectures
+                        .filter(lecture => lecture.courseId === course.id)
+                        .map(lecture => (
+                          <Button
+                            key={lecture.id}
+                            variant={selectedLecture?.id === lecture.id ? 'default' : 'outline'}
+                            size="sm"
+                            onClick={() => setSelectedLecture(lecture)}
+                            className={selectedLecture?.id === lecture.id ? 'gradient-bg' : ''}
+                          >
+                            {lecture.title.length > 20 ? lecture.title.substring(0, 20) + '...' : lecture.title}
+                          </Button>
+                        ))}
+                    </div>
+                    <div className="shrink-0 ml-auto">
+                      <UploadVideo 
+                        courseId={course.id}
+                        onUploadComplete={(lectureId, videoUrl) => {
+                          console.log('Upload complete:', lectureId, videoUrl);
+                          // Refresh lectures after upload
+                          if (user) {
+                            getInstructorLectures(user.id)
+                              .then(response => {
+                                if (response.success && response.data) {
+                                  const { lectures: transformedLectures } = transformInstructorLectures(response);
+                                  const enrichedLectures = enrichLecturesWithMockData(transformedLectures);
+                                  setLectures(enrichedLectures);
+                                  if (enrichedLectures.length > 0 && !selectedLecture) {
+                                    setSelectedLecture(enrichedLectures[0]);
+                                  }
                                 }
-                              }
-                            })
-                            .catch(error => {
-                              console.error('Failed to refresh lectures:', error);
-                            });
-                        }
-                      }}
-                    />
+                              })
+                              .catch(error => {
+                                console.error('Failed to refresh lectures:', error);
+                              });
+                          }
+                        }}
+                      />
+                    </div>
                   </div>
                 </div>
               </motion.div>

@@ -4,6 +4,7 @@ import time
 from pathlib import Path
 from dotenv import load_dotenv
 from twelvelabs import TwelveLabs
+from twelvelabs.core.api_error import ApiError
 import json
 import re
 
@@ -27,6 +28,9 @@ def start_video_indexing(video_url):
         )
         print(f"✅ Indexing started. Task ID: {task.id}")
         return task.id
+    except ApiError:
+        traceback.print_exc()
+        raise
     except Exception as e:
         traceback.print_exc()
         return None

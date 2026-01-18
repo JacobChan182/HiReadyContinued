@@ -25,8 +25,17 @@ async function tryFlask<T>(fn: () => Promise<T>, label: string, retries = 2, del
       return await fn();
     } catch (err: any) {
       const code = err?.code || '';
+      const status = err?.response?.status;
       const msg = err?.response?.data || err?.message || err;
       console.error(`${label} attempt ${i + 1} failed:`, msg);
+      if (status === 429) {
+        console.error('Flask is rate limited. Skipping retries.');
+        return null;
+      }
+      if (status && status >= 500) {
+        console.error('Flask returned a server error. Skipping retries.');
+        return null;
+      }
       if (code === 'ECONNREFUSED' || code === 'ENOTFOUND') {
         console.error(`Cannot reach Flask at ${FLASK_BASE_URL}. Check FLASK_BASE_URL and that Flask is running.`);
       }
@@ -113,27 +122,31 @@ router.post('/complete', async (req: Request, res: Response) => {
       taskIdFromTask = (indexResp as any)?.data?.task_id || null;
 
       // 2. Perform Segmentation (Wait for it)
-      const flaskLong = axios.create({ baseURL: FLASK_BASE_URL, timeout: 600000 }); // 10 min timeout
-      try {
-        console.log(`[Node] Requesting segmentation for ${lectureId}...`);
-        const segResp = await flaskLong.post('/api/segment-video', {
-          videoUrl: signedDownloadUrl,
-          lectureId,
-          videoId: videoIdFromTask,
-          taskId: taskIdFromTask,
-        });
-        
-        segments = segResp.data?.segments || [];
-        fullAiData = segResp.data?.rawAiMetaData || null;
-        // LOG THIS IN YOUR TERMINAL
-        console.log("--- DATA VALIDATION ---");
-        console.log("Lecture ID:", lectureId);
-        console.log("Segments Length:", segments.length);
-        console.log("Full AI Data Type:", typeof fullAiData);
-        console.log("Full AI Data Content:", JSON.stringify(fullAiData).substring(0, 100));
-        console.log(`[Node] Received ${segments.length} segments.`);
-      } catch (segErr: any) {
-        console.error('[Node] Segmentation error:', segErr.message);
+      if (videoIdFromTask || taskIdFromTask) {
+        const flaskLong = axios.create({ baseURL: FLASK_BASE_URL, timeout: 600000 }); // 10 min timeout
+        try {
+          console.log(`[Node] Requesting segmentation for ${lectureId}...`);
+          const segResp = await flaskLong.post('/api/segment-video', {
+            videoUrl: signedDownloadUrl,
+            lectureId,
+            videoId: videoIdFromTask,
+            taskId: taskIdFromTask,
+          });
+          
+          segments = segResp.data?.segments || [];
+          fullAiData = segResp.data?.rawAiMetaData || null;
+          // LOG THIS IN YOUR TERMINAL
+          console.log("--- DATA VALIDATION ---");
+          console.log("Lecture ID:", lectureId);
+          console.log("Segments Length:", segments.length);
+          console.log("Full AI Data Type:", typeof fullAiData);
+          console.log("Full AI Data Content:", JSON.stringify(fullAiData).substring(0, 100));
+          console.log(`[Node] Received ${segments.length} segments.`);
+        } catch (segErr: any) {
+          console.error('[Node] Segmentation error:', segErr.message);
+        }
+      } else {
+        console.warn('[Node] Skipping segmentation because indexing did not start.');
       }
     }
 
