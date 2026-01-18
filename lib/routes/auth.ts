@@ -43,10 +43,13 @@ router.post('/signup', async (req: Request, res: Response) => {
 
     // Track signup event
     try {
+      // Map old role values to new ones for Login tracking
+      const loginRole = role === 'employee' ? 'student' : role === 'trainer' ? 'instructor' : role;
+      
       const loginEvent = new Login({
         userId: newUser._id.toString(),
         pseudonymId: newUser.pseudonymId,
-        role,
+        role: loginRole as 'student' | 'instructor',
         action: 'signup',
         ipAddress: req.ip,
         userAgent: req.get('user-agent'),
@@ -114,8 +117,11 @@ router.post('/signin', async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
+    // Map old role values for comparison
+    const userRole = user.role === 'employee' ? 'student' : user.role === 'trainer' ? 'instructor' : user.role;
+    
     // Validate that the user's role matches the requested role
-    if (user.role !== role) {
+    if (userRole !== role) {
       return res.status(403).json({ 
         error: `This account is registered as ${user.role}. Please select the correct role.` 
       });
@@ -123,10 +129,13 @@ router.post('/signin', async (req: Request, res: Response) => {
 
     // Track signin event
     try {
+      // Map old role values to new ones for Login tracking
+      const loginRole = user.role === 'employee' ? 'student' : user.role === 'trainer' ? 'instructor' : user.role;
+      
       const loginEvent = new Login({
         userId: user._id.toString(),
         pseudonymId: user.pseudonymId,
-        role: user.role,
+        role: loginRole as 'student' | 'instructor',
         action: 'signin',
         ipAddress: req.ip,
         userAgent: req.get('user-agent'),
