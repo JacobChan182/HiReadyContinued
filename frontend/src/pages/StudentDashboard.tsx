@@ -526,7 +526,7 @@ const StudentDashboard = () => {
               <Card className="glass-card p-4">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
-                    <h1 className="text-xl font-semibold">{selectedLecture.title}</h1>
+                    <h1 className="text-xl font-semibold">{"Workplace Safety"}</h1>
                   </div>
                   <div className="flex gap-2 flex-shrink-0">
                     <Button 
