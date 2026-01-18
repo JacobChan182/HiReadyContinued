@@ -39,7 +39,12 @@ const QuizDisplay = ({ quizContent, onClose }: QuizDisplayProps) => {
         const questionList: QuizQuestion[] = [];
 
         // Split by any variation of "Question X" header
-        const blocks = content.split(/(?=###?\s*Question\s*\d+)|(?=\*\*Question\s*\d+[:)]?\*\*)/i);
+        let blocks = content.split(/(?=###?\s*Question\s*\d+)|(?=\*\*Question\s*\d+[:)]?\*\*)/i);
+
+        // Fallback: split by numbered questions like "1. **Question**"
+        if (blocks.length <= 1) {
+            blocks = content.split(/(?=^\s*\d+\.\s*\*\*.+\*\*)/m);
+        }
 
         blocks.forEach((block) => {
             const trimmedBlock = block.trim();
@@ -53,13 +58,18 @@ const QuizDisplay = ({ quizContent, onClose }: QuizDisplayProps) => {
             let parsingOptions = false;
 
             lines.forEach(line => {
-                // Skip the "Question X" header line itself
+                // Skip the "Question X" header line itself or numbered bold header
                 if (/^(###?\s*)?Question\s*\d+/i.test(line)) return;
+                if (/^\d+\.\s*\*\*.+\*\*/.test(line)) {
+                    // Extract question text from bold numbered format
+                    questionText += (questionText ? " " : "") + line.replace(/^\d+\.\s*\*\*|\*\*$/g, "");
+                    return;
+                }
 
-                // Match options like "A) text" or "- A) text"
-                const optionMatch = line.match(/^[-*]?\s*([A-D])\)\s*(.*)/i);
-                // Match answer keys like "**Answer:** B" or "Answer: B"
-                const answerMatch = line.match(/(?:Correct\s+)?Answer:\s*([A-D])/i);
+                // Match options like "A) text", "a) text", or "- A) text"
+                const optionMatch = line.match(/^[-*]?\s*([A-Da-d])\)\s*(.*)/);
+                // Match answer keys like "**Answer:** B", "Answer: b", or "**Answer:** c) ..."
+                const answerMatch = line.match(/(?:\*\*)?Answer:(?:\*\*)?\s*([A-Da-d])/i);
 
                 if (optionMatch) {
                     parsingOptions = true;
@@ -68,7 +78,6 @@ const QuizDisplay = ({ quizContent, onClose }: QuizDisplayProps) => {
                     correctAnswer = answerMatch[1].toUpperCase();
                 } else if (!parsingOptions && !line.startsWith('---')) {
                     // If we haven't hit options yet, this is the question text
-                    // Clean up bold markers from the question itself
                     questionText += (questionText ? " " : "") + line.replace(/^\*\*|\*\*$/g, "");
                 }
             });
@@ -77,7 +86,7 @@ const QuizDisplay = ({ quizContent, onClose }: QuizDisplayProps) => {
                 questionList.push({
                     question: questionText,
                     options,
-                    correctAnswer: correctAnswer || options[0].charAt(0) // Fallback to first option if no answer found
+                    correctAnswer: correctAnswer || options[0].charAt(0).toUpperCase() // Fallback to first option letter
                 });
             }
         });
