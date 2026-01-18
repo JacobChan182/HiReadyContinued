@@ -93,7 +93,7 @@ const StudentDashboard = () => {
           }
         }
       } catch (error) {
-        console.error('Failed to fetch student courses, using mock data:', error);
+        console.error('Failed to fetch training courses, using mock data:', error);
         // Fallback to mock data
         setCourses(mockCourses);
         setLectures(mockLectures);

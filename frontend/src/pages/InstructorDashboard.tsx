@@ -565,7 +565,7 @@ const InstructorDashboard = () => {
                 {/* Stats Overview */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           {[
-            { icon: Users, label: 'Total Students', value: mockStudents.length, color: 'text-primary' },
+            { icon: Users, label: 'Total Employees', value: mockStudents.length, color: 'text-primary' },
             { icon: Eye, label: 'Avg. Watch Rate', value: '78%', color: 'text-chart-3' },
             { icon: AlertTriangle, label: 'Friction Points', value: topStrugglingConcepts.length, color: 'text-destructive' },
             { icon: Activity, label: 'Engagement Score', value: '82/100', color: 'text-chart-2' },
