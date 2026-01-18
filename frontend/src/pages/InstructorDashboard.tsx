@@ -609,7 +609,7 @@ const InstructorDashboard = () => {
             <div className="w-8 h-8 rounded-lg gradient-bg flex items-center justify-center">
               <Zap className="w-5 h-5 text-primary-foreground" />
             </div>
-            <span className="font-semibold">Edu<span className="gradient-text">Pulse</span></span>
+            <span className="font-semibold">Hi<span className="gradient-text">Ready</span></span>
             <Badge variant="outline" className="ml-2 bg-instructor/10 text-instructor border-instructor/30">
               Instructor View
             </Badge>

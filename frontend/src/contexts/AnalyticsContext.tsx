@@ -141,7 +141,7 @@ export const AnalyticsProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     
     // Log other events (not rewind - those are handled by trackRewind)
     if (eventType !== 'rewind') {
-      console.log('[EduPulse Analytics]', {
+      console.log('[HiReady.tech Analytics]', {
         event: eventType,
         user: user.pseudonymId,
         lecture: lectureId,

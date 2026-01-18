@@ -1,8 +1,8 @@
-# EduPulse.tech - Identity-Aware Learning Analytics Platform
+# HiReady.tech - Identity-Aware Learning Analytics Platform
 
 **Built for UofTHacks 13**
 
-An intelligent training and analytics platform that uses AI-powered video intelligence to detect learning friction and provide actionable insights for trainers and HR departments. Built with privacy-first design principles, EduPulse transforms workplace training and educational content delivery through advanced analytics and behavioral clustering.
+An intelligent training and analytics platform that uses AI-powered video intelligence to detect learning friction and provide actionable insights for trainers and HR departments. Built with privacy-first design principles, HiReady.tech transforms workplace training and educational content delivery through advanced analytics and behavioral clustering.
 
 ## 🎯 Problem Statement
 
@@ -12,7 +12,7 @@ Traditional training platforms lack visibility into how employees actually consu
 - Patterns in learning behavior across groups
 - Optimal intervention points for struggling learners
 
-EduPulse solves this by providing real-time analytics powered by AI video intelligence while maintaining user privacy through pseudonymization.
+HiReady.tech solves this by providing real-time analytics powered by AI video intelligence while maintaining user privacy through pseudonymization.
 
 ## ✨ Key Features
 

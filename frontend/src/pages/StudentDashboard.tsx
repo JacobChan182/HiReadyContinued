@@ -421,7 +421,7 @@ const StudentDashboard = () => {
             <div className="w-8 h-8 rounded-lg gradient-bg flex items-center justify-center">
               <Zap className="w-5 h-5 text-primary-foreground" />
             </div>
-            <span className="font-semibold">Edu<span className="gradient-text">Pulse</span></span>
+            <span className="font-semibold">Hi<span className="gradient-text">Ready</span></span>
           </div>
           
           <div className="flex items-center gap-4">
