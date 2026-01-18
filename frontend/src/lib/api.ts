@@ -1,4 +1,8 @@
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const DEFAULT_API_URL = import.meta.env.DEV
+  ? '/api/js/api'
+  : 'http://localhost:3001/api';
+
+const API_URL = import.meta.env.VITE_API_URL || DEFAULT_API_URL;
 
 // Sign up
 export const signup = async (email: string, password: string, role: 'student' | 'instructor') => {
@@ -360,6 +364,134 @@ export const getVideoStreamUrl = async (videoKey: string) => {
     return await response.json();
   } catch (error) {
     console.error('Error getting video stream URL:', error);
+    throw error;
+  }
+};
+
+// Chat API Functions
+// Flask runs on :5001 in `npm run dev` (see package.json dev:flask)
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:5001/api';
+
+export const sendChatMessage = async (
+  userId: string,
+  message: string,
+  lectureId?: string,
+  videoTitle?: string
+): Promise<string> => {
+  try {
+    const response = await fetch(`${BACKEND_URL}/backboard/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        user_id: userId,
+        message,
+        lecture_id: lectureId,
+        video_title: videoTitle,
+        provider: 'openai',
+        model: 'gpt-4o',
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Failed to send chat message');
+    }
+
+    const data = await response.json();
+    return data.response || '';
+  } catch (error) {
+    console.error('Error sending chat message:', error);
+    throw error;
+  }
+};
+
+export const getChatHistory = async (
+  userId: string,
+  limit: number = 50,
+  skip: number = 0
+): Promise<Array<{ role: string; content: string; timestamp: string }>> => {
+  try {
+    const response = await fetch(
+      `${BACKEND_URL}/backboard/chat/history/${userId}?limit=${limit}&skip=${skip}`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Failed to fetch chat history');
+    }
+
+    const data = await response.json();
+    return data.messages || [];
+  } catch (error) {
+    console.error('Error fetching chat history:', error);
+    throw error;
+  }
+};
+
+// Video Analytics API Functions
+
+export interface VideoAnalyticsData {
+  totalStudents?: number;
+  dropOffPoints?: Array<{ timestamp: number; studentCount: number; percentage: number }>;
+  rewindFrequency?: Array<{ conceptName: string; rewindCount: number }>;
+  engagementScore?: number;
+  strugglingSegments?: Array<{ startTime: number; endTime: number; name: string; rewindCount: number }>;
+  averageRewindCount?: number;
+}
+
+export const getVideoAnalytics = async (
+  videoId: string
+): Promise<VideoAnalyticsData> => {
+  try {
+    const response = await fetch(`${BACKEND_URL}/backboard/analyze-video`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        video_id: videoId,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Failed to fetch video analytics');
+    }
+
+    const data = await response.json();
+    return data.analytics || {};
+  } catch (error) {
+    console.error('Error fetching video analytics:', error);
+    throw error;
+  }
+};
+
+export const getVideoEngagementReport = async (
+  lectureId: string
+): Promise<any> => {
+  try {
+    const response = await fetch(`${API_URL}/analytics/lecture/${lectureId}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch engagement report');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching engagement report:', error);
     throw error;
   }
 };

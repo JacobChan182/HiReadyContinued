@@ -119,7 +119,7 @@ router.post('/complete', async (req: Request, res: Response) => {
         });
         
         segments = segResp.data?.segments || [];
-        fullAiData = segResp.data?.full_data || null;
+        fullAiData = segResp.data?.rawAiMetaData || null;
         // LOG THIS IN YOUR TERMINAL
         console.log("--- DATA VALIDATION ---");
         console.log("Lecture ID:", lectureId);
@@ -140,8 +140,7 @@ router.post('/complete', async (req: Request, res: Response) => {
       videoUrl,
       createdAt: new Date(),
       studentRewindEvents: [],
-      lectureSegments: segments,
-      rawAiMetadata: fullAiData || {}
+      rawAiMetaData: fullAiData || {}
     };
 
     // D. Update Course Model (Update existing or push new)

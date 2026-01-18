@@ -68,17 +68,17 @@ const Login = () => {
   const roles = [
     {
       id: 'student' as UserRole,
-      title: 'Student',
-      description: 'Access lectures, track progress, and get personalized insights',
+      title: 'Employee',
+      description: 'Access training videos, track progress, and get personalized insights',
       icon: GraduationCap,
-      features: ['Watch lecture videos', 'Search by concept', 'Get catch-up summaries'],
+      features: ['Watch training videos', 'Search by concept', 'Get catch-up summaries'],
     },
     {
       id: 'instructor' as UserRole,
-      title: 'Instructor',
-      description: 'View aggregated class analytics and identify learning friction',
+      title: 'Employer',
+      description: 'View aggregated employee analytics and identify learning setbacks',
       icon: Users,
-      features: ['Class-wide analytics', 'Concept difficulty insights', 'Behavioral clusters'],
+      features: ['Company-wide analytics', 'Concept difficulty insights', 'Behavioral clusters'],
     },
   ];
 
@@ -105,7 +105,7 @@ const Login = () => {
               <Zap className="w-7 h-7 text-primary-foreground" />
             </div>
             <span className="text-3xl font-bold text-white">
-              Edu<span className="gradient-text">Pulse</span>.tech
+              <span className="gradient-text">HiRe</span>ady.tech
             </span>
           </motion.div>
           <p className="text-slate-400 text-lg max-w-md mx-auto">

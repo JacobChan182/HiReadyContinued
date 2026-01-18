@@ -12,8 +12,7 @@ export interface ILecture {
     studentPseudonymId: string;
     rewindEvents: IRewindEvent[];
   }>;
-  lectureSegments: Array<any>;
-  rawAiMetadata: Record<string, any>;
+  rawAiMetaData: Record<string, any>;
 }
 
 export interface ICourse {
@@ -23,6 +22,7 @@ export interface ICourse {
   lectures: ILecture[];
   createdAt: Date;
   updatedAt: Date;
+  rawAiMetaData?: Record<string, any>;
 }
 
 const StudentRewindEventsSchema = new Schema({
@@ -38,8 +38,7 @@ const LectureSchema = new Schema<ILecture>({
   videoUrl: { type: String },
   createdAt: { type: Date, default: Date.now },
   studentRewindEvents: { type: [StudentRewindEventsSchema], default: [] },
-  lectureSegments: [Object],
-  rawAiMetadata: { type: Object, default: {} },
+  rawAiMetaData: { type: Object, default: {} },
 }, { _id: false }); // Disable _id for subdocuments
 
 const CourseSchema = new Schema<ICourse>({

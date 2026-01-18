@@ -6,7 +6,7 @@ import { getStudentCourses } from '@/lib/api';
 import { Concept, Lecture, Course } from '@/types';
 import { 
   Search, Sparkles, Clock, 
-  BookOpen, ChevronRight, Zap, LogOut, User, ChevronDown
+  BookOpen, ChevronRight, Zap, LogOut, User, ChevronDown, TrendingUp
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -19,6 +19,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import VideoPlayer, { VideoPlayerRef } from '@/components/VideoPlayer';
+import ChatWidget from '@/components/ChatWidget';
 
 const StudentDashboard = () => {
   const { user, logout } = useAuth();
@@ -30,6 +31,67 @@ const StudentDashboard = () => {
   const [showSummary, setShowSummary] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const videoPlayerRef = useRef<VideoPlayerRef | null>(null);
+
+  // TODO: Replace with actual assessment/quiz scores from your teammate's implementation
+  // Placeholder worker personality scores (0-100 for each type)
+  const [workerPersonality] = useState({
+    achieverDreamer: 75,      // Replace with actual quiz score
+    helperMediator: 60,       // Replace with actual quiz score
+    analystInvestigator: 85,  // Replace with actual quiz score
+    championPersuader: 45,    // Replace with actual quiz score
+    individualist: 55,        // Replace with actual quiz score
+    problemSolverDetective: 70, // Replace with actual quiz score
+    challengerDebater: 50,    // Replace with actual quiz score
+  });
+
+  // Calculate percentages for pie chart
+  const workerTypes = [
+    { name: 'Achiever/Dreamer', score: workerPersonality.achieverDreamer, color: '#3b82f6' },
+    { name: 'Helper/Mediator', score: workerPersonality.helperMediator, color: '#10b981' },
+    { name: 'Analyst/Investigator', score: workerPersonality.analystInvestigator, color: '#8b5cf6' },
+    { name: 'Champion/Persuader', score: workerPersonality.championPersuader, color: '#f59e0b' },
+    { name: 'Individualist', score: workerPersonality.individualist, color: '#ec4899' },
+    { name: 'Problem Solver/Detective', score: workerPersonality.problemSolverDetective, color: '#06b6d4' },
+    { name: 'Challenger/Debater', score: workerPersonality.challengerDebater, color: '#ef4444' },
+  ];
+
+  const totalScore = workerTypes.reduce((sum, type) => sum + type.score, 0);
+  const workerTypesWithPercentages = workerTypes.map(type => ({
+    ...type,
+    percentage: totalScore > 0 ? (type.score / totalScore) * 100 : 0,
+  }));
+
+  // Get dominant worker type
+  const dominantType = workerTypesWithPercentages.reduce((prev, current) => 
+    current.percentage > prev.percentage ? current : prev
+  );
+
+  // Generate pie chart paths
+  const generatePieChart = () => {
+    let cumulativePercentage = 0;
+    return workerTypesWithPercentages.map((type) => {
+      const startAngle = (cumulativePercentage / 100) * 360;
+      cumulativePercentage += type.percentage;
+      const endAngle = (cumulativePercentage / 100) * 360;
+      
+      const startRad = (startAngle - 90) * (Math.PI / 180);
+      const endRad = (endAngle - 90) * (Math.PI / 180);
+      
+      const x1 = 50 + 45 * Math.cos(startRad);
+      const y1 = 50 + 45 * Math.sin(startRad);
+      const x2 = 50 + 45 * Math.cos(endRad);
+      const y2 = 50 + 45 * Math.sin(endRad);
+      
+      const largeArc = type.percentage > 50 ? 1 : 0;
+      
+      return {
+        ...type,
+        path: `M 50 50 L ${x1} ${y1} A 45 45 0 ${largeArc} 1 ${x2} ${y2} Z`,
+      };
+    });
+  };
+
+  const pieChartData = generatePieChart();
 
   // Fetch student courses and lectures from API
   useEffect(() => {
@@ -84,7 +146,7 @@ const StudentDashboard = () => {
           }
         }
       } catch (error) {
-        console.error('Failed to fetch student courses, using mock data:', error);
+        console.error('Failed to fetch training courses, using mock data:', error);
         // Fallback to mock data
         setCourses(mockCourses);
         setLectures(mockLectures);
@@ -145,7 +207,6 @@ const StudentDashboard = () => {
       }
     }
   };
-
   const filteredConcepts = selectedLecture
     ? selectedLecture.concepts.filter(c =>
         c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -158,6 +219,12 @@ const StudentDashboard = () => {
     if (videoPlayerRef.current) {
       videoPlayerRef.current.jumpToConcept(concept);
     }
+  };
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   const generateSummary = () => {
@@ -284,138 +351,197 @@ const StudentDashboard = () => {
             </p>
           </div>
         ) : (
-        <div className="grid lg:grid-cols-3 gap-6">
-          {/* Video Player Section */}
-          <div className="lg:col-span-2 space-y-4">
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-            >
-              <VideoPlayer ref={videoPlayerRef} lecture={selectedLecture} course={course} />
-            </motion.div>
-
-            {/* Lecture Info */}
-            <Card className="glass-card p-4">
-              <div className="flex items-start justify-between">
-                <div>
-                  <h1 className="text-xl font-semibold">{selectedLecture.title}</h1>
-                </div>
-                <Button onClick={generateSummary} className="gradient-bg glow">
-                  <Sparkles className="w-4 h-4 mr-2" />
-                  2-Min Catch-Up
-                </Button>
-              </div>
-            </Card>
-
-            {/* AI Summary Modal */}
-            {showSummary && (
+          <>
+          <div className="grid lg:grid-cols-3 gap-6">
+            {/* Video Player Section */}
+            <div className="lg:col-span-2 space-y-4">
               <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
               >
-                <Card className="glass-card p-6 border-primary/30">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Sparkles className="w-5 h-5 text-primary" />
-                    <h3 className="font-semibold">AI-Generated Summary</h3>
-                    <Badge variant="outline" className="ml-auto">
-                      <Clock className="w-3 h-3 mr-1" />
-                      2 min read
-                    </Badge>
-                  </div>
-                  <div className="space-y-3 text-muted-foreground">
-                    <p>This lecture covers the fundamentals of neural networks and machine learning optimization:</p>
-                    <ul className="space-y-2">
-                      {selectedLecture.concepts.map(concept => (
-                        <li key={concept.id} className="flex items-start gap-2">
-                          <ChevronRight className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
-                          <span><strong className="text-foreground">{concept.name}:</strong> {concept.summary}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                  <Button 
-                    variant="ghost" 
-                    className="mt-4"
-                    onClick={() => setShowSummary(false)}
-                  >
-                    Close Summary
-                  </Button>
-                </Card>
+                <VideoPlayer ref={videoPlayerRef} lecture={selectedLecture} course={course} />
               </motion.div>
-            )}
-          </div>
 
-          {/* Sidebar */}
-          <div className="space-y-4">
-            {/* Concept Search */}
-            <Card className="glass-card p-4">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search concepts..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-            </Card>
+              {/* Lecture Info */}
+              <Card className="glass-card p-4">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h1 className="text-xl font-semibold">{selectedLecture.title}</h1>
+                  </div>
+                  <Button onClick={generateSummary} className="gradient-bg glow">
+                    <Sparkles className="w-4 h-4 mr-2" />
+                    2-Min Catch-Up
+                  </Button>
+                </div>
+              </Card>
 
-            {/* Concept List */}
-            <Card className="glass-card p-4">
-              <h3 className="font-semibold mb-3 flex items-center gap-2">
-                <BookOpen className="w-4 h-4 text-primary" />
-                Lecture Concepts
-              </h3>
-              <div className="space-y-2">
-                {filteredConcepts.map((concept, i) => (
-                  <motion.div
-                    key={concept.id}
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: i * 0.05 }}
-                    onClick={() => jumpToConcept(concept)}
-                    className="p-3 rounded-lg cursor-pointer transition-all bg-muted/50 hover:bg-muted"
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-medium text-sm">{concept.name}</span>
-                      <Badge variant="outline" className="text-xs font-mono">
-                        {Math.floor(concept.startTime / 60)}:{(Math.floor(concept.startTime % 60)).toString().padStart(2, '0')}
+              {/* AI Summary Modal */}
+              {showSummary && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                >
+                  <Card className="glass-card p-6 border-primary/30">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Sparkles className="w-5 h-5 text-primary" />
+                      <h3 className="font-semibold">AI-Generated Summary</h3>
+                      <Badge variant="outline" className="ml-auto">
+                        <Clock className="w-3 h-3 mr-1" />
+                        2 min read
                       </Badge>
                     </div>
-                    <p className="text-xs text-muted-foreground line-clamp-2">
-                      {concept.summary}
-                    </p>
-                  </motion.div>
-                ))}
-              </div>
-            </Card>
+                    <div className="space-y-3 text-muted-foreground">
+                      <p>This lecture covers the fundamentals of neural networks and machine learning optimization:</p>
+                      <ul className="space-y-2">
+                        {selectedLecture.concepts.map(concept => (
+                          <li key={concept.id} className="flex items-start gap-2">
+                            <ChevronRight className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
+                            <span><strong className="text-foreground">{concept.name}:</strong> {concept.summary}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    <Button 
+                      variant="ghost" 
+                      className="mt-4"
+                      onClick={() => setShowSummary(false)}
+                    >
+                      Close Summary
+                    </Button>
+                  </Card>
+                </motion.div>
+              )}
+            </div>
 
-            {/* Other Lectures */}
-            <Card className="glass-card p-4">
-              <h3 className="font-semibold mb-3">Other Lectures</h3>
-              <div className="space-y-2">
-                {availableLectures.filter(l => selectedLecture && l.id !== selectedLecture.id).map(lecture => (
-                  <div
-                    key={lecture.id}
-                    onClick={() => setSelectedLecture(lecture)}
-                    className="p-3 rounded-lg bg-muted/50 hover:bg-muted cursor-pointer transition-colors"
-                  >
-                    <p className="font-medium text-sm">{lecture.title}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {lecture.concepts.length} concepts{lecture.videoUrl && ' • Video'}
-                    </p>
-                  </div>
-                ))}
-                {availableLectures.filter(l => selectedLecture && l.id !== selectedLecture.id).length === 0 && (
-                  <p className="text-sm text-muted-foreground text-center py-4">
-                    No other lectures in this course
+            {/* Sidebar */}
+            <div className="space-y-4">
+              {/* Worker Personality Section */}
+              <Card className="glass-card p-4">
+                <h3 className="font-semibold mb-3 flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4 text-primary" />
+                  What Kind of Worker Are You?
+                </h3>
+                
+                {/* Pie Chart */}
+                <div className="flex items-center justify-center mb-4">
+                  <svg viewBox="0 0 100 100" className="w-48 h-48">
+                    {pieChartData.map((slice, index) => (
+                      <motion.path
+                        key={slice.name}
+                        d={slice.path}
+                        fill={slice.color}
+                        initial={{ opacity: 0, scale: 0 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ delay: index * 0.1 }}
+                        className="cursor-pointer hover:opacity-80 transition-opacity"
+                      />
+                    ))}
+                  </svg>
+                </div>
+
+                {/* Dominant Type */}
+                <div className="mb-4 p-3 rounded-lg" style={{ backgroundColor: `${dominantType.color}15` }}>
+                  <p className="text-xs text-muted-foreground mb-1">Your Dominant Type</p>
+                  <p className="font-semibold" style={{ color: dominantType.color }}>
+                    {dominantType.name}
                   </p>
-                )}
-              </div>
-            </Card>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {dominantType.percentage.toFixed(1)}% of your profile
+                  </p>
+                </div>
+
+                {/* Legend */}
+                <div className="space-y-2">
+                  {workerTypesWithPercentages
+                    .sort((a, b) => b.percentage - a.percentage)
+                    .map((type) => (
+                      <div key={type.name} className="flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2">
+                          <div 
+                            className="w-3 h-3 rounded-full" 
+                            style={{ backgroundColor: type.color }}
+                          />
+                          <span className="text-muted-foreground">{type.name}</span>
+                        </div>
+                        <span className="font-mono font-medium">{type.percentage.toFixed(1)}%</span>
+                      </div>
+                    ))}
+                </div>
+
+                <p className="text-xs text-muted-foreground mt-4 pt-4 border-t">
+                  Based on your assessment results. Complete more quizzes to refine your profile.
+                </p>
+              </Card>
+
+              {/* Concept Search */}
+              <Card className="glass-card p-4">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search concepts..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+              </Card>
+
+              {/* Concept List */}
+              <Card className="glass-card p-4">
+                <h3 className="font-semibold mb-3 flex items-center gap-2">
+                  <BookOpen className="w-4 h-4 text-primary" />
+                  Lecture Concepts
+                </h3>
+                <div className="space-y-2">
+                  {filteredConcepts.map((concept, i) => (
+                    <motion.div
+                      key={concept.id}
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.05 }}
+                      onClick={() => jumpToConcept(concept)}
+                      className="p-3 rounded-lg cursor-pointer transition-all bg-muted/50 hover:bg-muted"
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-medium text-sm">{concept.name}</span>
+                        <Badge variant="outline" className="text-xs font-mono">
+                          {formatTime(concept.startTime)}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground line-clamp-2">
+                        {concept.summary}
+                      </p>
+                    </motion.div>
+                  ))}
+                </div>
+              </Card>
+
+              {/* Other Lectures */}
+              <Card className="glass-card p-4">
+                <h3 className="font-semibold mb-3">Other Lectures</h3>
+                <div className="space-y-2">
+                  {availableLectures.filter(l => selectedLecture && l.id !== selectedLecture.id).map(lecture => (
+                    <div
+                      key={lecture.id}
+                      onClick={() => setSelectedLecture(lecture)}
+                      className="p-3 rounded-lg bg-muted/50 hover:bg-muted cursor-pointer transition-colors"
+                    >
+                      <p className="font-medium text-sm">{lecture.title}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {lecture.concepts.length} concepts{lecture.videoUrl && ' • Video'}
+                      </p>
+                    </div>
+                  ))}
+                  {availableLectures.filter(l => selectedLecture && l.id !== selectedLecture.id).length === 0 && (
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                      No other lectures in this course
+                    </p>
+                  )}
+                </div>
+              </Card>
+            </div>
           </div>
-        </div>
-        )}
+          <ChatWidget lectureId={selectedLecture?.id} videoTitle={selectedLecture?.title} />
           </>
         )}
       </main>

@@ -72,67 +72,49 @@ def _log_segments(segments, prefix="Segments"):
         traceback.print_exc()
 
 def segment_video_topics(video_id):
-    # Pegasus 1.2 still needs that settle time after indexing is 'ready'
     print(f"[TwelveLabs] Waiting 30s for Pegasus engine to finalize...")
     time.sleep(30) 
 
     try:
         print(f"DEBUG: Starting segmentation for video_id: {video_id}")
         
-        # New syntax for 2026 SDK: client.analyze instead of client.generate.text
-        # We use a structured prompt to get JSON back
         prompt = (
-            "Analyze this video and provide a list of major topics. Include the topic name, a summary/details of each topic, \n as well as the start and end time of the video where this topic is covered in seconds."
-            "Return the response strictly as a JSON object with this structure: "
-            '{"segments": [{"start": 0, "end": 60, "title": "Topic Name", "summary": "..."}]}'
+            "Analyze this video and provide a list of major topics. Include the topic name, a summary/details of each topic, "
+            "as well as the start and end time of the video where this topic is covered in seconds. "
+            "Return the response strictly as a JSON object with this structure. The variable count will always be set to 0.: "
+            '{"segments": [{"count": 0, "start": 0, "end": 60, "title": "Topic Name", "summary": "..."}]}'
         )
 
-        print(f"[TwelveLabs] Calling client.analyze for {video_id}...")
-        
-        # In the 2026 SDK, 'generate.text' is now simply 'analyze'
-        result = client.analyze(
-            video_id=video_id,
-            prompt=prompt
-        )
-
-        # The data attribute contains the generated string
+        result = client.analyze(video_id=video_id, prompt=prompt)
         raw_text = getattr(result, 'data', None)
         
         if not raw_text:
-            print("❌ Error: API returned no data. Check your model options.")
-            return []
+            return {"segments": []}
 
-        print(f"[TwelveLabs] Raw Data Received: {raw_text}...")
-
-        # Robust JSON extraction
+        # Extract and parse JSON
         json_match = re.search(r'(\{.*\})', raw_text, re.DOTALL)
         if json_match:
             try:
+                # This is your single source of truth
                 data = json.loads(json_match.group(1))
-                segments = data.get("segments", [])
-                # We return a dictionary containing both the list and the raw object
-                return {
-                    "segments": segments, 
-                    "full_data": data 
-                }
-            except Exception as e:
-                print(f"❌ JSON Parse Error: {e}")
+                return data 
+            except json.JSONDecodeError:
+                print("❌ JSON Parse Error")
         
-        return {"segments": [], "full_data": {}}
+        return {"segments": []}
 
     except Exception as e:
         print(f"❌ API Error: {e}")
-        traceback.print_exc()
-        return []
+        return {"segments": []}
     
 def index_and_segment(video_url):
     task_id = start_video_indexing(video_url)
-    if not task_id: return {"segments": [], "full_data": None}
+    if not task_id: return {"segments": []}
     
     video_id = wait_for_task_completion(task_id)
-    if not video_id: return {"segments": [], "full_data": None}
+    if not video_id: return {"segments": []}
     
-    # This calls the function that returns the DICT
+    # Returns the full dict: {"segments": [...]}
     return segment_video_topics(video_id)
 
 def verify_index_configuration():
