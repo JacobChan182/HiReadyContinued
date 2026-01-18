@@ -33,7 +33,7 @@ const ChatWidget = ({ lectureId, videoTitle }: ChatWidgetProps) => {
   return (
     <div className="fixed bottom-4 right-4 z-50">
       {isOpen && (
-        <div className="mb-3 w-[360px] max-w-[calc(100vw-2rem)] h-[560px] max-h-[calc(100vh-8rem)] shadow-2xl rounded-xl overflow-hidden border bg-background">
+        <div className="mb-3 w-[400px] max-w-[calc(100vw-2rem)] h-[680px] max-h-[calc(100vh-6rem)] shadow-2xl rounded-xl overflow-hidden border bg-background">
           <div className="flex items-center justify-between px-3 py-2 border-b bg-gradient-to-r from-blue-50 to-indigo-50">
             <div className="flex items-center gap-2">
               <MessageCircle className="h-4 w-4 text-blue-600" />

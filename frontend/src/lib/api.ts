@@ -376,8 +376,9 @@ export const sendChatMessage = async (
   userId: string,
   message: string,
   lectureId?: string,
-  videoTitle?: string
-): Promise<string> => {
+  videoTitle?: string,
+  sessionId?: string
+): Promise<{ response: string; session_id: string }> => {
   try {
     const response = await fetch(`${BACKEND_URL}/backboard/chat`, {
       method: 'POST',
@@ -389,6 +390,7 @@ export const sendChatMessage = async (
         message,
         lecture_id: lectureId,
         video_title: videoTitle,
+        session_id: sessionId,
         provider: 'openai',
         model: 'gpt-4o',
       }),
@@ -400,7 +402,10 @@ export const sendChatMessage = async (
     }
 
     const data = await response.json();
-    return data.response || '';
+    return {
+      response: data.response || '',
+      session_id: data.session_id || sessionId || '',
+    };
   } catch (error) {
     console.error('Error sending chat message:', error);
     throw error;
@@ -409,12 +414,19 @@ export const sendChatMessage = async (
 
 export const getChatHistory = async (
   userId: string,
+  sessionId?: string,
   limit: number = 50,
   skip: number = 0
 ): Promise<Array<{ role: string; content: string; timestamp: string }>> => {
   try {
+    const params = new URLSearchParams({
+      limit: String(limit),
+      skip: String(skip),
+    });
+    if (sessionId) params.set('session_id', sessionId);
+
     const response = await fetch(
-      `${BACKEND_URL}/backboard/chat/history/${userId}?limit=${limit}&skip=${skip}`,
+      `${BACKEND_URL}/backboard/chat/history/${userId}?${params.toString()}`,
       {
         method: 'GET',
         headers: {
@@ -432,6 +444,95 @@ export const getChatHistory = async (
     return data.messages || [];
   } catch (error) {
     console.error('Error fetching chat history:', error);
+    throw error;
+  }
+};
+
+export const getChatSessions = async (
+  userId: string
+): Promise<Array<{ session_id: string; title?: string; updated_at?: string }>> => {
+  try {
+    const response = await fetch(`${BACKEND_URL}/backboard/chat/sessions/${userId}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Failed to fetch chat sessions');
+    }
+
+    const data = await response.json();
+    return data.sessions || [];
+  } catch (error) {
+    console.error('Error fetching chat sessions:', error);
+    throw error;
+  }
+};
+
+export const createChatSession = async (
+  userId: string,
+  title?: string,
+  lectureId?: string,
+  videoTitle?: string
+): Promise<{ session_id: string; title?: string }> => {
+  try {
+    const response = await fetch(`${BACKEND_URL}/backboard/chat/sessions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        user_id: userId,
+        title,
+        lecture_id: lectureId,
+        video_title: videoTitle,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Failed to create chat session');
+    }
+
+    const data = await response.json();
+    const session = data.session;
+    return {
+      session_id: session?.session_id || '',
+      title: session?.title,
+    };
+  } catch (error) {
+    console.error('Error creating chat session:', error);
+    throw error;
+  }
+};
+
+export const deleteChatSession = async (
+  userId: string,
+  sessionId: string
+): Promise<{ deleted: boolean; session_id: string }> => {
+  try {
+    const response = await fetch(`${BACKEND_URL}/backboard/chat/sessions/${userId}/${sessionId}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Failed to delete chat session');
+    }
+
+    const data = await response.json();
+    return {
+      deleted: Boolean(data.deleted),
+      session_id: data.session_id || sessionId,
+    };
+  } catch (error) {
+    console.error('Error deleting chat session:', error);
     throw error;
   }
 };

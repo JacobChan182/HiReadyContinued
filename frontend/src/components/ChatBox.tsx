@@ -1,10 +1,42 @@
-import { useState, useEffect, useRef } from 'react';
-import { Send, Loader2, AlertCircle } from 'lucide-react';
+import { useMemo, useState, useEffect, useRef } from 'react';
+import { Send, Loader2, AlertCircle, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { useAuth } from '@/contexts/AuthContext';
-import { sendChatMessage, getChatHistory } from '@/lib/api';
+import {
+  sendChatMessage,
+  getChatHistory,
+  getChatSessions,
+  createChatSession,
+  deleteChatSession,
+} from '@/lib/api';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -24,6 +56,24 @@ interface ChatHistoryMessage {
   timestamp: string | Date;
 }
 
+interface ChatSession {
+  session_id: string;
+  title?: string;
+  updated_at?: string;
+}
+
+const makeDefaultChatTitle = (videoTitle?: string) => {
+  const base = (videoTitle || 'New chat').trim();
+  const clipped = base.length > 40 ? `${base.slice(0, 40)}…` : base;
+  const time = new Date().toLocaleString([], {
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  return `${clipped} · ${time}`;
+};
+
 const ChatBox = ({ lectureId, videoTitle, className = '' }: ChatBoxProps) => {
   const { user } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -31,16 +81,58 @@ const ChatBox = ({ lectureId, videoTitle, className = '' }: ChatBoxProps) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [isLoadingSessions, setIsLoadingSessions] = useState(true);
+  const [isNewChatOpen, setIsNewChatOpen] = useState(false);
+  const [newChatTitle, setNewChatTitle] = useState('');
+  const [isCreatingChat, setIsCreatingChat] = useState(false);
+  const [isDeletingChat, setIsDeletingChat] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Load chat history when component mounts
+  const defaultTitle = useMemo(() => makeDefaultChatTitle(videoTitle), [videoTitle]);
+
+  // Load available sessions when component mounts
+  useEffect(() => {
+    if (!user) return;
+
+    const loadSessions = async () => {
+      try {
+        setIsLoadingSessions(true);
+        const s = await getChatSessions(user.id);
+        setSessions(Array.isArray(s) ? s : []);
+
+        // Default to most recent session (if any)
+        if (!activeSessionId && s && s.length > 0) {
+          setActiveSessionId(s[0].session_id);
+        }
+      } catch (err) {
+        console.error('Failed to load chat sessions:', err);
+        setError('Failed to load chat sessions');
+      } finally {
+        setIsLoadingSessions(false);
+      }
+    };
+
+    loadSessions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  // Load chat history for the active session
   useEffect(() => {
     if (!user) return;
 
     const loadHistory = async () => {
       try {
         setIsLoadingHistory(true);
-        const history = await getChatHistory(user.id, 20);
+        setError(null);
+
+        if (!activeSessionId) {
+          setMessages([]);
+          return;
+        }
+
+        const history = await getChatHistory(user.id, activeSessionId, 50);
         if (history && Array.isArray(history)) {
           setMessages(
             history.map((msg) => ({
@@ -59,7 +151,7 @@ const ChatBox = ({ lectureId, videoTitle, className = '' }: ChatBoxProps) => {
     };
 
     loadHistory();
-  }, [user]);
+  }, [user, activeSessionId]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -69,6 +161,14 @@ const ChatBox = ({ lectureId, videoTitle, className = '' }: ChatBoxProps) => {
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputValue.trim() || !user) return;
+
+    // Only allow sending messages within an explicitly created session.
+    // New chats should be created via the +New button.
+    if (!activeSessionId) {
+      setError('Create a new chat first');
+      openNewChat();
+      return;
+    }
 
     const userMessage: ChatMessage = {
       role: 'user',
@@ -82,20 +182,29 @@ const ChatBox = ({ lectureId, videoTitle, className = '' }: ChatBoxProps) => {
     setIsLoading(true);
 
     try {
-      const response = await sendChatMessage(
+      const result = await sendChatMessage(
         user.id,
         inputValue,
         lectureId,
-        videoTitle
+        videoTitle,
+        activeSessionId
       );
 
-      if (response) {
+      if (result?.response) {
         const assistantMessage: ChatMessage = {
           role: 'assistant',
-          content: response,
+          content: result.response,
           timestamp: new Date(),
         };
         setMessages((prev) => [...prev, assistantMessage]);
+      }
+
+      // Refresh sessions list so the UI shows the new/updated session title ordering
+      try {
+        const s = await getChatSessions(user.id);
+        setSessions(Array.isArray(s) ? s : []);
+      } catch {
+        // ignore
       }
     } catch (err) {
       const errorMessage =
@@ -105,6 +214,66 @@ const ChatBox = ({ lectureId, videoTitle, className = '' }: ChatBoxProps) => {
       setMessages((prev) => prev.slice(0, -1));
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const openNewChat = () => {
+    setNewChatTitle(defaultTitle);
+    setIsNewChatOpen(true);
+  };
+
+  const handleCreateNewChat = async () => {
+    if (!user) return;
+    const title = newChatTitle.trim() || defaultTitle;
+
+    try {
+      setIsCreatingChat(true);
+      setError(null);
+
+      const session = await createChatSession(user.id, title, lectureId, videoTitle);
+      setIsNewChatOpen(false);
+      setMessages([]);
+      setActiveSessionId(session.session_id || null);
+
+      const s = await getChatSessions(user.id);
+      setSessions(Array.isArray(s) ? s : []);
+    } catch (err) {
+      console.error('Failed to create chat session:', err);
+      setError('Failed to create chat session');
+    } finally {
+      setIsCreatingChat(false);
+    }
+  };
+
+  const handleDeleteActiveChat = async () => {
+    if (!user || !activeSessionId) return;
+
+    const deletingId = activeSessionId;
+    try {
+      setIsDeletingChat(true);
+      setError(null);
+
+      await deleteChatSession(user.id, deletingId);
+
+      setSessions((prev) => {
+        const nextSessions = prev.filter((s) => s.session_id !== deletingId);
+
+        // If we deleted the active session, switch to next-most-recent (or empty)
+        if (deletingId === activeSessionId) {
+          setActiveSessionId(nextSessions.length > 0 ? nextSessions[0].session_id : null);
+          setMessages([]);
+        }
+
+        return nextSessions;
+      });
+
+      const s = await getChatSessions(user.id);
+      setSessions(Array.isArray(s) ? s : []);
+    } catch (err) {
+      console.error('Failed to delete chat session:', err);
+      setError('Failed to delete chat session');
+    } finally {
+      setIsDeletingChat(false);
     }
   };
 
@@ -120,10 +289,81 @@ const ChatBox = ({ lectureId, videoTitle, className = '' }: ChatBoxProps) => {
     <Card className={`flex flex-col h-full bg-white ${className}`}>
       {/* Header */}
       <div className="border-b px-4 py-3 bg-gradient-to-r from-blue-50 to-indigo-50">
-        <h3 className="font-semibold text-slate-800">AI Assistant</h3>
-        {videoTitle && (
-          <p className="text-xs text-slate-600 mt-1">{videoTitle}</p>
-        )}
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-slate-600">Chats</p>
+            {videoTitle ? (
+              <p className="mt-0.5 text-xs text-slate-500 truncate">{videoTitle}</p>
+            ) : null}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={openNewChat}>
+              <Plus className="h-4 w-4 mr-1" />
+              New
+            </Button>
+
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-9"
+                  disabled={!activeSessionId || isDeletingChat || isLoadingSessions}
+                  aria-label="Delete selected chat"
+                  title={activeSessionId ? 'Delete selected chat' : 'Select a chat to delete'}
+                >
+                  <Trash2 className="h-4 w-4 text-red-600" />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete this chat?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will remove the chat session and its messages. This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={isDeletingChat}>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={handleDeleteActiveChat}
+                    disabled={isDeletingChat}
+                    className="bg-red-600 hover:bg-red-700"
+                  >
+                    {isDeletingChat ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Deleting…
+                      </>
+                    ) : (
+                      'Delete'
+                    )}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+        </div>
+
+        <div className="mt-3 flex items-center gap-2">
+          <Select
+            value={activeSessionId ?? undefined}
+            onValueChange={(value) => setActiveSessionId(value)}
+            disabled={isLoadingSessions || sessions.length === 0}
+          >
+            <SelectTrigger className="h-9">
+              <SelectValue placeholder={sessions.length === 0 ? 'No chats yet' : 'Select a chat'} />
+            </SelectTrigger>
+            <SelectContent>
+              {sessions.map((s) => (
+                <SelectItem key={s.session_id} value={s.session_id}>
+                  {s.title || s.session_id}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* Messages Area */}
@@ -209,6 +449,48 @@ const ChatBox = ({ lectureId, videoTitle, className = '' }: ChatBoxProps) => {
           )}
         </Button>
       </form>
+
+      <Dialog open={isNewChatOpen} onOpenChange={setIsNewChatOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>New chat</DialogTitle>
+            <DialogDescription>
+              Give this chat a name (or keep the suggested one).
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            <Input
+              value={newChatTitle}
+              onChange={(e) => setNewChatTitle(e.target.value)}
+              placeholder={defaultTitle}
+              disabled={isCreatingChat}
+              autoFocus
+            />
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsNewChatOpen(false)}
+              disabled={isCreatingChat}
+            >
+              Cancel
+            </Button>
+            <Button type="button" onClick={handleCreateNewChat} disabled={isCreatingChat}>
+              {isCreatingChat ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Creating…
+                </>
+              ) : (
+                'Create'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 };

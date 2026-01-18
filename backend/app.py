@@ -8,6 +8,7 @@ import asyncio
 from pymongo import MongoClient
 from datetime import datetime, UTC
 import traceback
+from uuid import uuid4
 from services.video_service import start_video_indexing, index_and_segment, verify_index_configuration
 
 load_dotenv()
@@ -15,6 +16,10 @@ load_dotenv()
 def create_app():
     app = Flask(__name__)
     CORS(app)
+
+    # When MongoDB is not configured, we still support multi-chat sessions during
+    # this server process lifetime.
+    in_memory_sessions = {}
 
     MONGODB_URI = os.getenv("MONGODB_URI")
     if not MONGODB_URI:
@@ -45,17 +50,23 @@ def create_app():
 
     @app.post('/api/backboard/chat')
     def backboard_chat():
-        data = request.get_json(force=True)
+        data = request.get_json(force=True) or {}
         
         user_id = data.get("user_id")
         if not user_id:
             return {"status": "error", "message": "user_id is required"}, 400
+
+        session_id = data.get("session_id") or str(uuid4())
+        session_title = (
+            data.get("title")
+            or data.get("video_title")
+            or data.get("lecture_id")
+            or "New chat"
+        )
         
         api_key = os.getenv("BACKBOARD_API_KEY")
         if not api_key:
             return {"status": "error", "message": "Missing BACKBOARD_API_KEY env var"}, 500
-
-        client = BackboardClient(api_key=api_key)
 
         provider = data.get("provider", "openai")
         model = data.get("model", "gpt-4o")
@@ -69,56 +80,190 @@ def create_app():
         if provider not in allowed or model not in allowed[provider]:
             return {"status": "error", "message": "Unsupported provider/model"}, 400
 
+        existing_session = None
+        if db is not None:
+            existing_session = db.chat_sessions.find_one(
+                {"user_id": user_id, "session_id": session_id},
+                {"_id": 0},
+            )
+        else:
+            candidate = in_memory_sessions.get(session_id)
+            if candidate and candidate.get("user_id") == user_id:
+                existing_session = candidate
+
+        existing_assistant_id = (existing_session or {}).get("assistant_id")
+        existing_thread_id = (existing_session or {}).get("thread_id")
+
+        now = datetime.now(UTC)
+
         if db is not None:
             db.chat_messages.insert_one({
                 "user_id": user_id,
+                "session_id": session_id,
                 "role": "user",
                 "content": user_message,
                 "provider": provider,
                 "model": model,
-                "timestamp": datetime.now(UTC)
+                "timestamp": now,
             })
 
-        # Run all async operations in a single event loop
-        async def run_chat():
-            assistant = await client.create_assistant(
-                name="NoMoreTears Assistant",
-                description="A helpful educational assistant that helps students understand their lectures better"
-            )
-            thread = await client.create_thread(assistant.assistant_id)
+        async def run_chat(assistant_id, thread_id):
+            client = BackboardClient(api_key=api_key)
+
+            resolved_assistant_id = assistant_id
+            resolved_thread_id = thread_id
+
+            if not resolved_assistant_id or not resolved_thread_id:
+                assistant = await client.create_assistant(
+                    name="NoMoreTears Assistant",
+                    description="A helpful educational assistant that helps students understand their lectures better",
+                )
+                thread = await client.create_thread(assistant.assistant_id)
+                resolved_assistant_id = str(assistant.assistant_id)
+                resolved_thread_id = str(thread.thread_id)
 
             response = await client.add_message(
-                thread_id=thread.thread_id,
+                thread_id=resolved_thread_id,
                 content=user_message,
                 llm_provider=provider,
                 model_name=model,
                 memory="Auto",
-                stream=False
+                stream=False,
             )
-            
-            return assistant, thread, response
 
-        assistant, thread, response = asyncio.run(run_chat())
-        ai_response = response.content
+            return resolved_assistant_id, resolved_thread_id, response.content
 
-        # Save AI response to MongoDB
+        try:
+            resolved_assistant_id, resolved_thread_id, ai_response = asyncio.run(
+                run_chat(existing_assistant_id, existing_thread_id)
+            )
+        except Exception as e:
+            print(f"⚠️  backboard chat failed: {e}")
+            return {"status": "error", "message": str(e)}, 500
+
+        # Persist session + assistant response
         if db is not None:
+            db.chat_sessions.update_one(
+                {"user_id": user_id, "session_id": session_id},
+                {
+                    "$setOnInsert": {
+                        "created_at": now,
+                    },
+                    "$set": {
+                        "updated_at": now,
+                        "title": session_title,
+                        "assistant_id": resolved_assistant_id,
+                        "thread_id": resolved_thread_id,
+                    },
+                },
+                upsert=True,
+            )
+
             db.chat_messages.insert_one({
                 "user_id": user_id,
+                "session_id": session_id,
                 "role": "assistant",
                 "content": ai_response,
                 "provider": provider,
                 "model": model,
-                "assistant_id": str(assistant.assistant_id),
-                "thread_id": str(thread.thread_id),
-                "timestamp": datetime.now(UTC)
+                "assistant_id": resolved_assistant_id,
+                "thread_id": resolved_thread_id,
+                "timestamp": datetime.now(UTC),
             })
+        else:
+            in_memory_sessions[session_id] = {
+                "user_id": user_id,
+                "session_id": session_id,
+                "title": session_title,
+                "assistant_id": resolved_assistant_id,
+                "thread_id": resolved_thread_id,
+                "updated_at": now,
+            }
 
         return jsonify({
             "response": ai_response,
-            "assistant_id": str(assistant.assistant_id),
-            "thread_id": str(thread.thread_id)
+            "session_id": session_id,
+            "assistant_id": resolved_assistant_id,
+            "thread_id": resolved_thread_id,
         })
+
+    @app.get('/api/backboard/chat/sessions/<user_id>')
+    def list_chat_sessions(user_id):
+        """List chat sessions for a user (used to support multiple chat topics)."""
+        if db is None:
+            sessions = [
+                {
+                    "session_id": s.get("session_id"),
+                    "title": s.get("title"),
+                    "updated_at": s.get("updated_at"),
+                }
+                for s in in_memory_sessions.values()
+                if s.get("user_id") == user_id
+            ]
+            sessions.sort(key=lambda s: s.get("updated_at") or datetime.min, reverse=True)
+            return jsonify({"status": "success", "user_id": user_id, "sessions": sessions})
+
+        sessions = list(
+            db.chat_sessions.find({"user_id": user_id}, {"_id": 0})
+            .sort("updated_at", -1)
+            .limit(50)
+        )
+        return jsonify({"status": "success", "user_id": user_id, "sessions": sessions})
+
+    @app.post('/api/backboard/chat/sessions')
+    def create_chat_session():
+        """Create a new empty chat session (topic) for a user."""
+        body = request.get_json(force=True) or {}
+        user_id = body.get("user_id")
+        if not user_id:
+            return {"status": "error", "message": "user_id is required"}, 400
+
+        session_id = str(uuid4())
+        title = body.get("title") or body.get("video_title") or body.get("lecture_id") or "New chat"
+        now = datetime.now(UTC)
+
+        session_doc = {
+            "user_id": user_id,
+            "session_id": session_id,
+            "title": title,
+            "created_at": now,
+            "updated_at": now,
+            "assistant_id": None,
+            "thread_id": None,
+        }
+
+        if db is not None:
+            db.chat_sessions.insert_one(session_doc)
+        else:
+            in_memory_sessions[session_id] = session_doc
+
+        # PyMongo will add an ObjectId _id field to the inserted dict if it was
+        # missing; Flask can't JSON-serialize ObjectId.
+        session_doc.pop("_id", None)
+
+        return jsonify({"status": "success", "session": session_doc})
+
+    @app.delete('/api/backboard/chat/sessions/<user_id>/<session_id>')
+    def delete_chat_session(user_id, session_id):
+        """Delete a chat session and (if MongoDB is configured) its messages."""
+        if not user_id or not session_id:
+            return {"status": "error", "message": "user_id and session_id are required"}, 400
+
+        if db is None:
+            existing = in_memory_sessions.get(session_id)
+            if not existing or existing.get("user_id") != user_id:
+                return {"status": "error", "message": "Session not found"}, 404
+            in_memory_sessions.pop(session_id, None)
+            return jsonify({"status": "success", "deleted": True, "session_id": session_id})
+
+        # MongoDB-backed: delete both the session and all its messages
+        session_result = db.chat_sessions.delete_one({"user_id": user_id, "session_id": session_id})
+        if session_result.deleted_count == 0:
+            return {"status": "error", "message": "Session not found"}, 404
+
+        db.chat_messages.delete_many({"user_id": user_id, "session_id": session_id})
+
+        return jsonify({"status": "success", "deleted": True, "session_id": session_id})
 
     @app.get('/api/backboard/chat/history/<user_id>')
     def get_chat_history(user_id):
@@ -128,9 +273,15 @@ def create_app():
         
         limit = request.args.get('limit', 50, type=int)
         skip = request.args.get('skip', 0, type=int)
+
+        session_id = request.args.get('session_id')
+
+        query = {"user_id": user_id}
+        if session_id:
+            query["session_id"] = session_id
         
         messages = list(db.chat_messages.find(
-            {"user_id": user_id},
+            query,
             {"_id": 0}  
         ).sort("timestamp", -1).skip(skip).limit(limit))
         
