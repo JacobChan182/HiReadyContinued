@@ -377,8 +377,16 @@ export const sendChatMessage = async (
   message: string,
   lectureId?: string,
   videoTitle?: string,
-  sessionId?: string
-): Promise<{ response: string; session_id: string }> => {
+  sessionId?: string,
+  routePreset: 'auto' | 'fastest' | 'logical' | 'everyday' | 'artistic' = 'auto'
+): Promise<{
+  response: string;
+  session_id: string;
+  provider?: string;
+  model?: string;
+  response_time_ms?: number;
+  route_preset?: string;
+}> => {
   try {
     const response = await fetch(`${BACKEND_URL}/backboard/chat`, {
       method: 'POST',
@@ -391,8 +399,8 @@ export const sendChatMessage = async (
         lecture_id: lectureId,
         video_title: videoTitle,
         session_id: sessionId,
-        provider: 'openai',
-        model: 'gpt-4o',
+        route_mode: 'auto',
+        route_preset: routePreset,
       }),
     });
 
@@ -405,6 +413,10 @@ export const sendChatMessage = async (
     return {
       response: data.response || '',
       session_id: data.session_id || sessionId || '',
+      provider: data.provider,
+      model: data.model,
+      response_time_ms: data.response_time_ms,
+      route_preset: data.route_preset,
     };
   } catch (error) {
     console.error('Error sending chat message:', error);
@@ -577,7 +589,7 @@ export const getVideoAnalytics = async (
 
 export const getVideoEngagementReport = async (
   lectureId: string
-): Promise<any> => {
+): Promise<unknown> => {
   try {
     const response = await fetch(`${API_URL}/analytics/lecture/${lectureId}`, {
       method: 'GET',

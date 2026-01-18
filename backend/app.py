@@ -8,8 +8,15 @@ import asyncio
 from pymongo import MongoClient
 from datetime import datetime, UTC
 import traceback
+import time
 from uuid import uuid4
 from services.video_service import start_video_indexing, index_and_segment, verify_index_configuration
+from services.chat_router import (
+    get_allowed_llms,
+    get_routing_config,
+    route_llm_for_message,
+    validate_llm_choice,
+)
 
 load_dotenv()
 
@@ -61,22 +68,76 @@ def create_app():
             data.get("title")
             or data.get("video_title")
             or data.get("lecture_id")
-            or "New chat"
+            or "Untitled"
         )
         
         api_key = os.getenv("BACKBOARD_API_KEY")
         if not api_key:
             return {"status": "error", "message": "Missing BACKBOARD_API_KEY env var"}, 500
 
-        provider = data.get("provider", "openai")
-        model = data.get("model", "gpt-4o")
+        requested_provider = data.get("provider")
+        requested_model = data.get("model")
+
+        route_mode = (data.get("route_mode") or "auto").strip().lower()
+        route_preset = (data.get("route_preset") or "auto").strip().lower()
         user_message = data.get("message", "")
+
+        allowed = get_allowed_llms()
+        routing_config = get_routing_config()
+        default_provider = routing_config["DEFAULT_PROVIDER"]
+        default_model = routing_config["DEFAULT_MODEL"]
+
+        preset_choices = {"auto", "fastest", "logical", "everyday", "artistic"}
+        if route_preset not in preset_choices:
+            route_preset = "auto"
+
+        # Default behavior: auto-route even if the client sends provider/model.
+        # This avoids the frontend accidentally locking the backend to one model.
+        if route_mode == "manual" and requested_provider and requested_model:
+            provider, model, route_reason = (
+                str(requested_provider).strip().lower(),
+                str(requested_model).strip(),
+                "bucket=manual",
+            )
+        elif route_preset == "fastest":
+            provider, model, route_reason = (
+                routing_config["FAST_PROVIDER"],
+                routing_config["FAST_MODEL"],
+                "bucket=fast_preset",
+            )
+        elif route_preset == "logical":
+            provider, model, route_reason = (
+                routing_config["LOGIC_PROVIDER"],
+                routing_config["LOGIC_MODEL"],
+                "bucket=logical_preset",
+            )
+        elif route_preset in {"everyday", "artistic"}:
+            provider, model, route_reason = (
+                default_provider,
+                default_model,
+                f"bucket={route_preset}_preset",
+            )
+        else:
+            provider, model, route_reason = route_llm_for_message(
+                user_message,
+                context={
+                    "lecture_id": data.get("lecture_id"),
+                    "video_title": data.get("video_title"),
+                    "title": data.get("title"),
+                    "session_id": session_id,
+                },
+            )
+
+        provider, model, fallback_note = validate_llm_choice(
+            provider,
+            model,
+            allowed=allowed,
+            fallback_provider=default_provider,
+            fallback_model=default_model,
+        )
+        if fallback_note:
+            route_reason = f"{route_reason};{fallback_note}"
         
-        allowed = {
-            "openai": {"gpt-5", "gpt-4o", "gpt-4o-mini"},
-            "anthropic": {"claude-3.5-sonnet"},
-            "mistral": {"mistral-large-latest"},
-        }
         if provider not in allowed or model not in allowed[provider]:
             return {"status": "error", "message": "Unsupported provider/model"}, 400
 
@@ -104,6 +165,11 @@ def create_app():
                 "content": user_message,
                 "provider": provider,
                 "model": model,
+                "requested_provider": requested_provider,
+                "requested_model": requested_model,
+                "route_mode": route_mode,
+                "route_preset": route_preset,
+                "route_reason": route_reason,
                 "timestamp": now,
             })
 
@@ -122,24 +188,100 @@ def create_app():
                 resolved_assistant_id = str(assistant.assistant_id)
                 resolved_thread_id = str(thread.thread_id)
 
-            response = await client.add_message(
-                thread_id=resolved_thread_id,
-                content=user_message,
-                llm_provider=provider,
-                model_name=model,
-                memory="Auto",
-                stream=False,
-            )
+            selected_provider = provider
+            selected_model = model
+            selected_reason = route_reason
 
-            return resolved_assistant_id, resolved_thread_id, response.content
+            try:
+                response = await client.add_message(
+                    thread_id=resolved_thread_id,
+                    content=user_message,
+                    llm_provider=selected_provider,
+                    model_name=selected_model,
+                    memory="Auto",
+                    stream=False,
+                )
+                return (
+                    resolved_assistant_id,
+                    resolved_thread_id,
+                    response.content,
+                    selected_provider,
+                    selected_model,
+                    selected_reason,
+                )
+            except Exception as e:
+                # Runtime fallback: if the chosen model/provider fails (timeouts,
+                # transient provider issues), retry once with the default.
+                if (
+                    selected_provider == default_provider
+                    and selected_model == default_model
+                ):
+                    raise
+
+                print(
+                    "⚠️  backboard primary model failed; retrying with default: "
+                    f"primary={selected_provider}:{selected_model} default={default_provider}:{default_model} err={e}"
+                )
+
+                response = await client.add_message(
+                    thread_id=resolved_thread_id,
+                    content=user_message,
+                    llm_provider=default_provider,
+                    model_name=default_model,
+                    memory="Auto",
+                    stream=False,
+                )
+                fallback_reason = f"{selected_reason};runtime_fallback_from={selected_provider}:{selected_model}"
+                return (
+                    resolved_assistant_id,
+                    resolved_thread_id,
+                    response.content,
+                    default_provider,
+                    default_model,
+                    fallback_reason,
+                )
 
         try:
-            resolved_assistant_id, resolved_thread_id, ai_response = asyncio.run(
+            start_time = time.monotonic()
+            (
+                resolved_assistant_id,
+                resolved_thread_id,
+                ai_response,
+                used_provider,
+                used_model,
+                used_route_reason,
+            ) = asyncio.run(
                 run_chat(existing_assistant_id, existing_thread_id)
             )
+            response_time_ms = int((time.monotonic() - start_time) * 1000)
         except Exception as e:
-            print(f"⚠️  backboard chat failed: {e}")
+            print(
+                "⚠️  backboard chat failed: "
+                f"user_id={user_id} session_id={session_id} "
+                f"route_mode={route_mode} "
+                f"route_preset={route_preset} "
+                f"requested={requested_provider}:{requested_model} "
+                f"selected={provider}:{model} reason={route_reason} "
+                f"err={e}"
+            )
             return {"status": "error", "message": str(e)}, 500
+
+        # The model/provider used may differ from the initially routed choice
+        # if a runtime fallback was applied.
+        provider = used_provider
+        model = used_model
+        route_reason = used_route_reason
+
+        # Terminal visibility (VS Code): keep routing hidden in UI, but log it here.
+        print(
+            "ℹ️  backboard chat routed: "
+            f"user_id={user_id} session_id={session_id} "
+            f"route_mode={route_mode} "
+            f"route_preset={route_preset} "
+            f"requested={requested_provider}:{requested_model} "
+            f"used={provider}:{model} reason={route_reason} "
+            f"response_time_ms={response_time_ms}"
+        )
 
         # Persist session + assistant response
         if db is not None:
@@ -166,6 +308,12 @@ def create_app():
                 "content": ai_response,
                 "provider": provider,
                 "model": model,
+                "requested_provider": requested_provider,
+                "requested_model": requested_model,
+                "route_mode": route_mode,
+                "route_preset": route_preset,
+                "route_reason": route_reason,
+                "response_time_ms": response_time_ms,
                 "assistant_id": resolved_assistant_id,
                 "thread_id": resolved_thread_id,
                 "timestamp": datetime.now(UTC),
@@ -185,6 +333,11 @@ def create_app():
             "session_id": session_id,
             "assistant_id": resolved_assistant_id,
             "thread_id": resolved_thread_id,
+            "provider": provider,
+            "model": model,
+            "route_reason": route_reason,
+            "response_time_ms": response_time_ms,
+            "route_preset": route_preset,
         })
 
     @app.get('/api/backboard/chat/sessions/<user_id>')
@@ -220,6 +373,8 @@ def create_app():
 
         session_id = str(uuid4())
         title = body.get("title") or body.get("video_title") or body.get("lecture_id") or "New chat"
+        if title == "New chat":
+            title = "Untitled"
         now = datetime.now(UTC)
 
         session_doc = {
