@@ -171,6 +171,13 @@ router.post('/signin', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Role must be either "student" or "instructor"' });
     }
 
+    // Ensure MongoDB is connected
+    const mongoose = await import('mongoose');
+    if (mongoose.default.connection.readyState !== 1) {
+      console.error('❌ MongoDB not connected. Ready state:', mongoose.default.connection.readyState);
+      return res.status(500).json({ error: 'Database connection not established. Please try again.' });
+    }
+
     // Find user by email
     const user = await User.findOne({ email: email.toLowerCase() });
     if (!user) {
@@ -272,7 +279,23 @@ router.post('/signin', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Signin error:', error);
-    res.status(500).json({ error: 'Failed to sign in' });
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorDetails = error instanceof Error ? error.stack : String(error);
+    console.error('Signin error details:', errorDetails);
+    
+    // Check if it's a MongoDB connection error
+    if (errorMessage.includes('MongoServerError') || errorMessage.includes('MongooseServerSelectionError') || errorMessage.includes('MongoNetworkError')) {
+      console.error('❌ MongoDB connection error detected');
+      return res.status(500).json({ 
+        error: 'Database connection failed. Please check your MongoDB configuration.',
+        details: process.env.NODE_ENV === 'development' ? errorMessage : undefined
+      });
+    }
+    
+    res.status(500).json({ 
+      error: 'Failed to sign in',
+      details: process.env.NODE_ENV === 'development' ? errorMessage : undefined
+    });
   }
 });
 
@@ -327,7 +350,23 @@ router.get('/me', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Get me error:', error);
-    res.status(500).json({ error: 'Failed to get user' });
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorDetails = error instanceof Error ? error.stack : String(error);
+    console.error('Get me error details:', errorDetails);
+    
+    // Check if it's a MongoDB connection error
+    if (errorMessage.includes('MongoServerError') || errorMessage.includes('MongooseServerSelectionError') || errorMessage.includes('MongoNetworkError')) {
+      console.error('❌ MongoDB connection error detected');
+      return res.status(500).json({ 
+        error: 'Database connection failed. Please check your MongoDB configuration.',
+        details: process.env.NODE_ENV === 'development' ? errorMessage : undefined
+      });
+    }
+    
+    res.status(500).json({ 
+      error: 'Failed to get user',
+      details: process.env.NODE_ENV === 'development' ? errorMessage : undefined
+    });
   }
 });
 

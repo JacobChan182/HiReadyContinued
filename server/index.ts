@@ -74,9 +74,70 @@ app.use('/api/students', studentsRoutes);
 app.use('/api/upload/direct', express.raw({ type: 'video/*', limit: '500mb' }));
 app.use('/api/upload', uploadRoutes);
 
-// health check endpoint
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', server: 'Express' });
+// health check endpoint (available at /api/health)
+app.get('/api/health', async (req, res) => {
+  try {
+    const mongoose = await import('mongoose');
+    const dbStatus = mongoose.default.connection.readyState;
+    const dbStates = {
+      0: 'disconnected',
+      1: 'connected',
+      2: 'connecting',
+      3: 'disconnecting'
+    };
+    
+    const health = {
+      status: 'ok',
+      server: 'Express',
+      database: {
+        status: dbStates[dbStatus] || 'unknown',
+        connected: dbStatus === 1
+      },
+      timestamp: new Date().toISOString()
+    };
+    
+    res.json(health);
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      server: 'Express',
+      database: { status: 'error', connected: false },
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Also allow /health for convenience (local dev)
+app.get('/health', async (req, res) => {
+  try {
+    const mongoose = await import('mongoose');
+    const dbStatus = mongoose.default.connection.readyState;
+    const dbStates = {
+      0: 'disconnected',
+      1: 'connected',
+      2: 'connecting',
+      3: 'disconnecting'
+    };
+    
+    const health = {
+      status: 'ok',
+      server: 'Express',
+      database: {
+        status: dbStates[dbStatus] || 'unknown',
+        connected: dbStatus === 1
+      },
+      timestamp: new Date().toISOString()
+    };
+    
+    res.json(health);
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      server: 'Express',
+      database: { status: 'error', connected: false },
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
 });
 
 // Export app for Vercel serverless functions
