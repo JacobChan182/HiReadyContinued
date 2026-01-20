@@ -182,8 +182,10 @@ router.post('/complete', async (req: Request, res: Response) => {
     if (course.instructorId !== userId) return res.status(403).json({ error: 'Permission denied' });
 
     // B. Generate signed URL for Twelve Labs
+    // Use 3 hours expiration (10800 seconds) because Flask processing can take 15+ minutes
+    // and we want plenty of buffer for TwelveLabs to download the video
     const downloadCommand = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: videoKey });
-    const signedDownloadUrl = await getSignedUrl(s3Client, downloadCommand, { expiresIn: 3600 });
+    const signedDownloadUrl = await getSignedUrl(s3Client, downloadCommand, { expiresIn: 10800 });
 
     let segments: any[] = [];
     let fullAiData: any = null;
@@ -229,12 +231,19 @@ router.post('/complete', async (req: Request, res: Response) => {
         
         // Fire and forget - don't await (Vercel will timeout if we wait)
         // Flask will process this in the background and can take 15+ minutes
-        flask.post('/api/segment-video', {
+        // Use a longer timeout for the async call (though we don't await it)
+        const flaskAsync = axios.create({ baseURL: FLASK_BASE_URL, timeout: 900000 }); // 15 min timeout
+        
+        console.log(`[Node] Using presigned URL (expires in 3 hours): ${signedDownloadUrl.substring(0, 100)}...`);
+        
+        flaskAsync.post('/api/segment-video', {
           videoUrl: signedDownloadUrl,
           lectureId,
+          courseId, // Pass courseId so Flask can update the database directly if needed
           videoId: videoIdFromTask,
           taskId: taskIdFromTask,
         }).then((segResp) => {
+          console.log(`[Node] ✅ Async segmentation response received for ${lectureId}`);
           if (segResp.data?.status === 'success') {
             const asyncSegments = segResp.data?.segments || [];
             const asyncFullAiData = segResp.data?.rawAiMetaData || null;
@@ -255,16 +264,28 @@ router.post('/complete', async (req: Request, res: Response) => {
             console.error('❌ Async segmentation failed. Response:', JSON.stringify(segResp.data, null, 2));
           }
         }).catch((segErr: any) => {
-          console.error('[Node] Async segmentation error:', segErr.message);
+          console.error('[Node] ❌ Async segmentation error:', segErr.message);
+          if (segErr.code) {
+            console.error('[Node] Error code:', segErr.code);
+          }
           if (segErr.response) {
             console.error('[Node] Async segmentation error response:', segErr.response.data);
             console.error('[Node] Async segmentation error status:', segErr.response.status);
+          } else if (segErr.request) {
+            console.error('[Node] No response received from Flask. Request details:', {
+              url: segErr.config?.url,
+              method: segErr.config?.method,
+              baseURL: segErr.config?.baseURL,
+            });
           }
+          console.error('[Node] Full error object:', segErr);
         });
         
         console.log(`✅ Segmentation triggered asynchronously. It will complete in the background (may take 15+ minutes).`);
+        console.log(`[Node] Check Flask logs at ${FLASK_BASE_URL} to see processing status.`);
       } else {
-        console.warn('[Node] No task_id available, skipping segmentation.');
+        console.warn('[Node] ⚠️ No task_id available, skipping segmentation.');
+        console.warn('[Node] This means indexing did not start. Check Flask logs and FLASK_BASE_URL.');
       }
     }
 
