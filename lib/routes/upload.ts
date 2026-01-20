@@ -38,6 +38,67 @@ async function tryFlask<T>(fn: () => Promise<T>, label: string, retries = 2, del
   return null;
 }
 
+// Helper function to update lecture with segments (called asynchronously after segmentation completes)
+async function updateLectureWithSegments(
+  lectureId: string,
+  courseId: string,
+  segments: any[],
+  fullAiData: any,
+  videoId: string | null
+) {
+  try {
+    // Ensure MongoDB is connected
+    const mongoose = await import('mongoose');
+    const CONNECTED_STATE = 1;
+    if (mongoose.default.connection.readyState !== CONNECTED_STATE) {
+      const connectDB = (await import('../db.js')).default;
+      await connectDB();
+      if (mongoose.default.connection.readyState !== CONNECTED_STATE) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+
+    const { Course } = await import('../models/Course.js');
+    const { Lecturer } = await import('../models/Lecturer.js');
+
+    // Transform segments
+    const lectureSegments = segments.map((seg: any) => ({
+      start: seg.start || seg.startTime || 0,
+      end: seg.end || seg.endTime || 0,
+      title: seg.title || seg.name || 'Untitled Segment',
+      summary: seg.summary || ''
+    }));
+
+    // Update Course
+    const course = await Course.findOne({ courseId });
+    if (course) {
+      const lectureIndex = course.lectures.findIndex(l => l.lectureId === lectureId);
+      if (lectureIndex > -1) {
+        course.lectures[lectureIndex].lectureSegments = lectureSegments;
+        course.lectures[lectureIndex].rawAiMetaData = fullAiData || {};
+        course.markModified('lectures');
+        await course.save();
+        console.log(`✅ Updated course lecture ${lectureId} with ${segments.length} segments`);
+      }
+    }
+
+    // Update Lecturer (find by lectureId in any lecturer's lectures)
+    const lecturers = await Lecturer.find({ 'lectures.lectureId': lectureId });
+    for (const lecturer of lecturers) {
+      const lectureIndex = lecturer.lectures.findIndex(l => l.lectureId === lectureId);
+      if (lectureIndex > -1) {
+        lecturer.lectures[lectureIndex].lectureSegments = lectureSegments;
+        lecturer.lectures[lectureIndex].rawAiMetaData = fullAiData || {};
+        lecturer.markModified('lectures');
+        await lecturer.save();
+        console.log(`✅ Updated lecturer lecture ${lectureId} with ${segments.length} segments`);
+      }
+    }
+  } catch (error) {
+    console.error('[Node] Error updating lecture with segments:', error);
+  }
+}
+
 // 1. Generate presigned URL for video upload
 router.post('/presigned-url', async (req: Request, res: Response) => {
   try {
@@ -160,39 +221,50 @@ router.post('/complete', async (req: Request, res: Response) => {
         }
       }
 
-      // 2. Perform Segmentation (Wait for it)
-      const flaskLong = axios.create({ baseURL: FLASK_BASE_URL, timeout: 600000 }); // 10 min timeout
-      try {
-        console.log(`[Node] Requesting segmentation for ${lectureId} with task_id: ${taskIdFromTask}...`);
-        const segResp = await flaskLong.post('/api/segment-video', {
+      // 2. Perform Segmentation (Async - Don't wait for completion due to Vercel timeout limits)
+      // Vercel serverless functions have execution time limits (10-60s), but segmentation can take 15+ minutes
+      // So we trigger it asynchronously and let it complete in the background
+      if (taskIdFromTask) {
+        console.log(`[Node] Triggering async segmentation for ${lectureId} with task_id: ${taskIdFromTask}...`);
+        
+        // Fire and forget - don't await (Vercel will timeout if we wait)
+        // Flask will process this in the background and can take 15+ minutes
+        flask.post('/api/segment-video', {
           videoUrl: signedDownloadUrl,
           lectureId,
-          videoId: videoIdFromTask, // This will be null, which is fine - segment-video will use task_id
+          videoId: videoIdFromTask,
           taskId: taskIdFromTask,
+        }).then((segResp) => {
+          if (segResp.data?.status === 'success') {
+            const asyncSegments = segResp.data?.segments || [];
+            const asyncFullAiData = segResp.data?.rawAiMetaData || null;
+            const asyncVideoId = segResp.data?.video_id || videoIdFromTask;
+            
+            console.log("--- ASYNC SEGMENTATION COMPLETE ---");
+            console.log("Lecture ID:", lectureId);
+            console.log("Video ID:", asyncVideoId);
+            console.log("Segments Length:", asyncSegments.length);
+            console.log(`✅ Successfully received ${asyncSegments.length} segments from TwelveLabs (async).`);
+            
+            // Update the lecture in the database with segments (async)
+            // This happens after the upload/complete response is sent
+            updateLectureWithSegments(lectureId, courseId, asyncSegments, asyncFullAiData, asyncVideoId).catch(err => {
+              console.error('[Node] Failed to update lecture with segments:', err);
+            });
+          } else {
+            console.error('❌ Async segmentation failed. Response:', JSON.stringify(segResp.data, null, 2));
+          }
+        }).catch((segErr: any) => {
+          console.error('[Node] Async segmentation error:', segErr.message);
+          if (segErr.response) {
+            console.error('[Node] Async segmentation error response:', segErr.response.data);
+            console.error('[Node] Async segmentation error status:', segErr.response.status);
+          }
         });
         
-        if (segResp.data?.status === 'success') {
-          segments = segResp.data?.segments || [];
-          fullAiData = segResp.data?.rawAiMetaData || null;
-          videoIdFromTask = segResp.data?.video_id || videoIdFromTask;
-          
-          console.log("--- DATA VALIDATION ---");
-          console.log("Lecture ID:", lectureId);
-          console.log("Video ID:", videoIdFromTask);
-          console.log("Segments Length:", segments.length);
-          console.log("Full AI Data Type:", typeof fullAiData);
-          console.log("Full AI Data Content:", JSON.stringify(fullAiData).substring(0, 100));
-          console.log(`✅ Successfully received ${segments.length} segments from TwelveLabs.`);
-        } else {
-          console.error('❌ Segmentation failed. Response:', JSON.stringify(segResp.data, null, 2));
-        }
-      } catch (segErr: any) {
-        console.error('[Node] Segmentation error:', segErr.message);
-        if (segErr.response) {
-          console.error('[Node] Segmentation error response:', segErr.response.data);
-          console.error('[Node] Segmentation error status:', segErr.response.status);
-        }
-        console.error('[Node] Full error:', segErr);
+        console.log(`✅ Segmentation triggered asynchronously. It will complete in the background (may take 15+ minutes).`);
+      } else {
+        console.warn('[Node] No task_id available, skipping segmentation.');
       }
     }
 
@@ -245,8 +317,14 @@ router.post('/complete', async (req: Request, res: Response) => {
 
     res.status(200).json({
       success: true,
-      message: 'Upload completed and database updated',
-      data: { lectureId, segments },
+      message: taskIdFromTask 
+        ? 'Upload completed. Video indexing is processing in the background (may take 15+ minutes). Segments will appear automatically when ready.'
+        : 'Upload completed and database updated',
+      data: { 
+        lectureId, 
+        segments: segments.length > 0 ? segments : [],
+        indexingInProgress: !!taskIdFromTask && segments.length === 0
+      },
     });
 
   } catch (error: any) {
@@ -288,7 +366,27 @@ router.post('/direct', async (req: Request, res: Response) => {
   }
 });
 
-// 4. Generate presigned URL for video playback (streaming)
+// 4. Webhook endpoint for Flask to call when segmentation completes
+router.post('/segmentation-complete', async (req: Request, res: Response) => {
+  try {
+    const { lectureId, courseId, segments, rawAiMetaData, videoId } = req.body;
+
+    if (!lectureId || !segments) {
+      return res.status(400).json({ error: 'Missing required fields: lectureId, segments' });
+    }
+
+    console.log(`[Node] Received segmentation completion webhook for lecture ${lectureId} with ${segments.length} segments`);
+
+    await updateLectureWithSegments(lectureId, courseId, segments, rawAiMetaData, videoId);
+
+    res.status(200).json({ success: true, message: 'Segments updated' });
+  } catch (error: any) {
+    console.error('❌ Error handling segmentation webhook:', error);
+    res.status(500).json({ error: 'Internal Server Error', details: error.message });
+  }
+});
+
+// 5. Generate presigned URL for video playback (streaming)
 router.get('/stream/:videoKey', async (req: Request, res: Response) => {
   try {
     const { videoKey } = req.params;
