@@ -7,6 +7,14 @@ const router = express.Router();
 
 const clusters: string[] = ['high-replay', 'fast-watcher', 'note-taker', 'late-night-learner', 'steady-pacer'];
 
+// Sign up - GET handler for debugging (method not allowed)
+router.get('/signup', (req: Request, res: Response) => {
+  res.status(405).json({ 
+    error: 'Method not allowed', 
+    message: 'Signup endpoint only accepts POST requests. Use POST with email, password, and role in the request body.' 
+  });
+});
+
 // Sign up
 router.post('/signup', async (req: Request, res: Response) => {
   try {
@@ -18,6 +26,13 @@ router.post('/signup', async (req: Request, res: Response) => {
 
     if (!['student', 'instructor'].includes(role)) {
       return res.status(400).json({ error: 'Role must be either "student" or "instructor"' });
+    }
+
+    // Ensure MongoDB is connected
+    const mongoose = await import('mongoose');
+    if (mongoose.default.connection.readyState !== 1) {
+      console.error('❌ MongoDB not connected. Ready state:', mongoose.default.connection.readyState);
+      return res.status(500).json({ error: 'Database connection not established. Please try again.' });
     }
 
     // Check if user already exists
@@ -118,7 +133,28 @@ router.post('/signup', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Signup error:', error);
-    res.status(500).json({ error: 'Failed to create user' });
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorDetails = error instanceof Error ? error.stack : String(error);
+    console.error('Signup error details:', errorDetails);
+    
+    // Check if it's a MongoDB connection error
+    if (errorMessage.includes('MongoServerError') || errorMessage.includes('MongooseServerSelectionError') || errorMessage.includes('MongoNetworkError')) {
+      console.error('❌ MongoDB connection error detected');
+      return res.status(500).json({ 
+        error: 'Database connection failed. Please check your MongoDB configuration.',
+        details: process.env.NODE_ENV === 'development' ? errorMessage : undefined
+      });
+    }
+    
+    // Check if it's a duplicate key error
+    if (errorMessage.includes('E11000') || errorMessage.includes('duplicate key')) {
+      return res.status(400).json({ error: 'User with this email or pseudonym ID already exists' });
+    }
+    
+    res.status(500).json({ 
+      error: 'Failed to create user',
+      details: process.env.NODE_ENV === 'development' ? errorMessage : undefined
+    });
   }
 });
 
