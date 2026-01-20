@@ -7,8 +7,17 @@ import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
 import { useAuth } from '@/contexts/AuthContext';
 
-// Use explicit URL from env or fallback to localhost
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+// Use the same API URL configuration as the rest of the app
+// In development, use proxy paths
+// In production, use VITE_API_URL if set, otherwise use relative /api (for Vercel)
+const DEFAULT_API_URL = import.meta.env.DEV
+  ? '/api/js/api'
+  : (import.meta.env.VITE_API_URL || '/api');
+
+const rawApiUrl = import.meta.env.VITE_API_URL || DEFAULT_API_URL;
+const API_URL = rawApiUrl
+  .replace(/\/+$/, '')
+  .replace(/\/API(\/|$)/, '/api$1');
 
 interface UploadVideoProps {
   courseId: string;
