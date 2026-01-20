@@ -6,8 +6,35 @@ export const connectDB = async () => {
       return mongoose.connection;
     }
 
+    // If connection is in progress (state 2), wait a bit or disconnect and retry
+    if (mongoose.connection.readyState === 2) {
+      console.log('⚠️  Connection in progress, waiting...');
+      // Wait up to 5 seconds for connection to complete
+      for (let i = 0; i < 10; i++) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        if (mongoose.connection.readyState === 1) {
+          console.log('✅ Connection completed');
+          return mongoose.connection;
+        }
+        if (mongoose.connection.readyState === 0) {
+          console.log('⚠️  Connection failed, will retry...');
+          break;
+        }
+      }
+      // If still connecting after 5 seconds, disconnect and retry
+      if (mongoose.connection.readyState === 2) {
+        console.log('⚠️  Connection stuck, disconnecting and retrying...');
+        await mongoose.disconnect();
+      }
+    }
+
     const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://your-connection-string-here';
-    await mongoose.connect(MONGODB_URI);
+    
+    // Add connection timeout and options
+    await mongoose.connect(MONGODB_URI, {
+      serverSelectionTimeoutMS: 10000, // 10 seconds timeout
+      connectTimeoutMS: 10000,
+    });
     console.log('✅ MongoDB Atlas connected successfully');
     
     // Clean up old indexes from Lecturer model migration

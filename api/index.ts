@@ -85,7 +85,19 @@ app.use(cors({
 app.use(cookieParser());
 app.use(express.json({ limit: '500mb' }));
 
-connectDB().catch(console.error);
+// Initialize MongoDB connection with better error handling
+connectDB().catch((error) => {
+  console.error('❌ Failed to connect to MongoDB:', error);
+  console.error('Error details:', {
+    message: error instanceof Error ? error.message : String(error),
+    name: error instanceof Error ? error.name : 'Unknown',
+    code: (error as any)?.code,
+  });
+  // Log connection string (without password) for debugging
+  const uri = process.env.MONGODB_URI || 'not set';
+  const maskedUri = uri.replace(/:([^:@]+)@/, ':****@');
+  console.error('Connection string:', maskedUri);
+});
 
 // Routes
 app.use('/api/analytics', analyticsRoutes);
