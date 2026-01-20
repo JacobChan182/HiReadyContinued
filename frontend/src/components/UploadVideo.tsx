@@ -85,33 +85,44 @@ const UploadVideo = ({ courseId, onUploadComplete }: UploadVideoProps) => {
     try {
       const lectureId = generateLectureId();
 
-      // Upload file directly to our server, which then uploads to R2 (avoids CORS)
-      const uploadResponse = await fetch(`${API_URL}/upload/direct`, {
+      // Step 1: Get presigned URL from server (avoids Vercel payload limit)
+      const presignedResponse = await fetch(`${API_URL}/upload/presigned-url`, {
         method: 'POST',
         headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: user.id,
+          lectureId,
+          filename: file.name,
+          contentType: file.type,
+        }),
+      });
+
+      if (!presignedResponse.ok) {
+        const errorData = await presignedResponse.json();
+        throw new Error(errorData.error || 'Failed to get upload URL');
+      }
+
+      const { presignedUrl, key, publicUrl } = await presignedResponse.json();
+
+      // Step 2: Upload file directly to R2 using presigned URL (bypasses Vercel function)
+      setUploadProgress(25);
+      const uploadResponse = await fetch(presignedUrl, {
+        method: 'PUT',
+        headers: {
           'Content-Type': file.type,
-          'X-User-Id': user.id,
-          'X-Lecture-Id': lectureId,
-          'X-Filename': file.name,
         },
         body: file,
       });
 
       if (!uploadResponse.ok) {
         const errorText = await uploadResponse.text();
-        let errorData;
-        try {
-          errorData = JSON.parse(errorText);
-        } catch {
-          errorData = { error: errorText || 'Failed to upload file' };
-        }
-        const errorMessage = errorData.error || errorData.details || `HTTP ${uploadResponse.status}: Failed to upload file`;
-        console.error('Upload error response:', errorData);
-        throw new Error(errorMessage);
+        throw new Error(`Failed to upload to R2: ${errorText || 'Unknown error'}`);
       }
 
-      const uploadResult = await uploadResponse.json();
-      const { key, videoUrl } = uploadResult.data;
+      setUploadProgress(75);
+      const videoUrl = publicUrl;
 
       // Save video metadata to lecture
       const completeResponse = await fetch(`${API_URL}/upload/complete`, {
