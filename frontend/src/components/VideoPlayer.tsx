@@ -100,13 +100,14 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ lecture, cou
       }
 
       setIsLoadingStream(true);
+      // Don't set streamUrl to direct R2 URL - wait for presigned URL to avoid CORS errors
+      setStreamUrl(null);
+      
       try {
         const videoKey = extractVideoKey(lecture.videoUrl);
         
         if (!videoKey) {
-          // Fallback to using the videoUrl directly if we can't extract key
-          console.warn('Could not extract video key, using videoUrl directly:', lecture.videoUrl);
-          setStreamUrl(lecture.videoUrl);
+          console.error('[VideoPlayer] Could not extract video key from URL:', lecture.videoUrl);
           setIsLoadingStream(false);
           return;
         }
@@ -116,16 +117,13 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ lecture, cou
           console.log('[VideoPlayer] Using presigned URL for streaming');
           setStreamUrl(response.streamUrl);
         } else {
-          console.warn('[VideoPlayer] Presigned URL generation failed, response:', response);
-          console.warn('[VideoPlayer] Falling back to direct R2 URL (may cause CORS errors):', lecture.videoUrl);
-          // Fallback to original videoUrl
-          setStreamUrl(lecture.videoUrl);
+          console.error('[VideoPlayer] Presigned URL generation failed, response:', response);
+          // Don't fallback to direct R2 URL - it will cause CORS errors
+          // User will see loading state until presigned URL is available
         }
       } catch (error) {
         console.error('[VideoPlayer] Failed to load stream URL:', error);
-        console.warn('[VideoPlayer] Falling back to direct R2 URL (may cause CORS errors):', lecture.videoUrl);
-        // Fallback to original videoUrl
-        setStreamUrl(lecture.videoUrl);
+        // Don't fallback to direct R2 URL - it will cause CORS errors
       } finally {
         setIsLoadingStream(false);
       }
@@ -365,18 +363,20 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ lecture, cou
     <Card className="glass-card overflow-hidden">
       {/* Video */}
       <div className="relative aspect-video bg-secondary">
-        {isLoadingStream ? (
+        {isLoadingStream || !streamUrl ? (
           <div className="w-full h-full flex items-center justify-center">
             <div className="text-center">
               <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
-              <p className="text-sm text-muted-foreground">Loading video...</p>
+              <p className="text-sm text-muted-foreground">
+                {isLoadingStream ? 'Loading video...' : 'Preparing video stream...'}
+              </p>
             </div>
           </div>
         ) : (
           <video
-            key={`${lecture.id}-${streamUrl || lecture.videoUrl || ''}`}
+            key={`${lecture.id}-${streamUrl}`}
             ref={videoRef}
-            src={streamUrl || lecture.videoUrl}
+            src={streamUrl}
             className="w-full h-full object-contain"
             onTimeUpdate={handleTimeUpdate}
             onLoadedMetadata={() => {
