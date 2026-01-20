@@ -190,12 +190,30 @@ router.post('/signin', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Role must be either "student" or "instructor"' });
     }
 
-    // Ensure MongoDB is connected
+    // Ensure MongoDB is connected - try to connect if not connected
     const mongoose = await import('mongoose');
     const CONNECTED_STATE = 1; // mongoose.connection.readyState === 1 means connected
     if (mongoose.default.connection.readyState !== CONNECTED_STATE) {
-      console.error('❌ MongoDB not connected. Ready state:', mongoose.default.connection.readyState);
-      return res.status(500).json({ error: 'Database connection not established. Please try again.' });
+      console.log('⚠️  MongoDB not connected. Ready state:', mongoose.default.connection.readyState, '- Attempting to connect...');
+      try {
+        const connectDB = (await import('../db.js')).default;
+        await connectDB();
+        // Wait a moment for connection to establish
+        if (mongoose.default.connection.readyState !== CONNECTED_STATE) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      } catch (error) {
+        console.error('❌ Failed to connect to MongoDB:', error);
+        return res.status(500).json({ 
+          error: 'Database connection failed. Please check your MongoDB configuration.',
+          details: process.env.NODE_ENV === 'development' ? (error instanceof Error ? error.message : String(error)) : undefined
+        });
+      }
+      
+      if (mongoose.default.connection.readyState !== CONNECTED_STATE) {
+        console.error('❌ MongoDB still not connected after retry. Ready state:', mongoose.default.connection.readyState);
+        return res.status(500).json({ error: 'Database connection not established. Please try again.' });
+      }
     }
 
     // Find user by email
