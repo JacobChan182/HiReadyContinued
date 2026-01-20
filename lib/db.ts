@@ -38,9 +38,9 @@ export const connectDB = async () => {
     // If already connected, return cached connection
     if (cached.conn) {
       if (process.env.VERCEL) {
-        console.log('[Vercel DB] Using cached connection, state:', cached.conn.connection.readyState);
+        console.log('[Vercel DB] Using cached connection, state:', mongoose.connection.readyState);
       }
-      return cached.conn.connection;
+      return mongoose.connection;
     }
 
     // If connection is in progress, wait for it
@@ -69,7 +69,6 @@ export const connectDB = async () => {
         socketTimeoutMS: 45000,
         // CRITICAL for serverless: disable mongoose buffering
         bufferCommands: false,
-        bufferMaxEntries: 0,
         // Connection pool settings for serverless
         maxPoolSize: 1, // Single connection per serverless function
         minPoolSize: 0,
@@ -77,13 +76,13 @@ export const connectDB = async () => {
         // Retry settings
         retryWrites: true,
         w: 'majority',
-      }).then((mongoose) => {
+      } as any).then((mongooseInstance) => {
         if (process.env.VERCEL) {
           console.log('✅ MongoDB Atlas connected successfully (Vercel)');
         } else {
           console.log('✅ MongoDB Atlas connected successfully');
         }
-        return mongoose;
+        return mongooseInstance;
       }).catch((error) => {
         cached.promise = null;
         const errorMsg = error instanceof Error ? error.message : String(error);
@@ -100,7 +99,7 @@ export const connectDB = async () => {
     // Clean up old indexes from Lecturer model migration (skip in Vercel to avoid slow cold starts)
     if (!process.env.VERCEL) {
       try {
-        const collection = cached.conn.connection.collection('courses');
+        const collection = mongoose.connection.collection('courses');
         const indexes = await collection.indexes();
         
         // Drop userId index if it exists (leftover from Lecturer model)
@@ -124,7 +123,7 @@ export const connectDB = async () => {
       }
     }
     
-    return cached.conn.connection;
+    return mongoose.connection;
   } catch (error) {
     console.error('❌ MongoDB connection error:', error);
     throw error;

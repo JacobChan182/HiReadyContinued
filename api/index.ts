@@ -114,7 +114,7 @@ app.get('/api/health', async (req, res) => {
   try {
     const mongoose = await import('mongoose');
     const dbStatus = mongoose.default.connection.readyState;
-    const dbStates = {
+    const dbStates: Record<number, string> = {
       0: 'disconnected',
       1: 'connected',
       2: 'connecting',
