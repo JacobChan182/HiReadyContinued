@@ -52,35 +52,43 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ lecture, cou
   };
 
   // Extract video key from videoUrl (videoUrl format: ${PUBLIC_URL}/${key} or R2 endpoint)
+  // R2 URLs can be: https://account.r2.cloudflarestorage.com/bucket-name/videos/...
+  // We need to extract just the key part: videos/userId/lectureId-timestamp.ext
   const extractVideoKey = (videoUrl: string): string | null => {
     if (!videoUrl) return null;
     
     try {
-      // Look for 'videos' in the path - this is always present in our video keys
-      const videosMatch = videoUrl.match(/\/videos\/.+$/);
-      if (videosMatch) {
-        // Remove leading slash to get the key
-        return videosMatch[0].substring(1);
-      }
-      
-      // If no 'videos' found, try to extract from URL path
       const url = new URL(videoUrl);
       const pathParts = url.pathname.split('/').filter(part => part);
       
-      // Look for 'videos' in path parts
+      // Look for 'videos' in path parts (this is always the start of our video keys)
       const videosIndex = pathParts.findIndex(part => part === 'videos');
       if (videosIndex !== -1) {
-        return pathParts.slice(videosIndex).join('/');
+        // Extract everything from 'videos' onwards (skip bucket name if present)
+        const key = pathParts.slice(videosIndex).join('/');
+        console.log('[VideoPlayer] Extracted video key:', key, 'from URL:', videoUrl);
+        return key;
       }
+      
+      // Fallback: try regex to find /videos/... pattern
+      const videosMatch = videoUrl.match(/\/videos\/.+$/);
+      if (videosMatch) {
+        const key = videosMatch[0].substring(1); // Remove leading slash
+        console.log('[VideoPlayer] Extracted video key (regex):', key, 'from URL:', videoUrl);
+        return key;
+      }
+      
+      console.warn('[VideoPlayer] Could not extract video key from URL:', videoUrl);
+      return null;
     } catch (error) {
-      // If URL parsing fails, try regex approach
+      console.error('[VideoPlayer] Error parsing video URL:', error, 'URL:', videoUrl);
+      // Last resort: try regex
       const videosMatch = videoUrl.match(/\/videos\/.+$/);
       if (videosMatch) {
         return videosMatch[0].substring(1);
       }
+      return null;
     }
-    
-    return null;
   };
 
   // Fetch presigned stream URL when lecture changes
@@ -105,13 +113,17 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ lecture, cou
 
         const response = await getVideoStreamUrl(videoKey);
         if (response.success && response.streamUrl) {
+          console.log('[VideoPlayer] Using presigned URL for streaming');
           setStreamUrl(response.streamUrl);
         } else {
+          console.warn('[VideoPlayer] Presigned URL generation failed, response:', response);
+          console.warn('[VideoPlayer] Falling back to direct R2 URL (may cause CORS errors):', lecture.videoUrl);
           // Fallback to original videoUrl
           setStreamUrl(lecture.videoUrl);
         }
       } catch (error) {
-        console.error('Failed to load stream URL, using videoUrl directly:', error);
+        console.error('[VideoPlayer] Failed to load stream URL:', error);
+        console.warn('[VideoPlayer] Falling back to direct R2 URL (may cause CORS errors):', lecture.videoUrl);
         // Fallback to original videoUrl
         setStreamUrl(lecture.videoUrl);
       } finally {

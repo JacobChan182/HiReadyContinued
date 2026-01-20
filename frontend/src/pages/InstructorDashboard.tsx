@@ -210,7 +210,9 @@ const InstructorDashboard = () => {
 
       try {
         setIsLoadingWatchProgress(true);
-        const response = await getLectureWatchProgress(selectedLecture.id);
+        // Use lectureId if available, otherwise fall back to id
+        const lectureId = (selectedLecture as any)?.lectureId || selectedLecture.id;
+        const response = await getLectureWatchProgress(lectureId);
         if (response && response.success && response.data) {
           setWatchProgressData({
             retentionData: response.data.retentionData || [],
@@ -243,7 +245,9 @@ const InstructorDashboard = () => {
       }
 
       try {
-        const response = await getLectureSegmentRewinds(selectedLecture.id);
+        // Use lectureId if available, otherwise fall back to id
+        const lectureId = (selectedLecture as any)?.lectureId || selectedLecture.id;
+        const response = await getLectureSegmentRewinds(lectureId);
         if (!isMounted) return;
         if (response && response.success && response.data) {
           setSegmentRewindData({ segments: response.data.segments || [] });
@@ -1402,7 +1406,7 @@ const InstructorDashboard = () => {
       </Dialog>
 
       <ChatWidget
-        lectureId={selectedLecture?.id}
+        lectureId={(selectedLecture as any)?.lectureId || selectedLecture?.id}
         videoTitle={selectedLecture?.title}
       />
     </div>

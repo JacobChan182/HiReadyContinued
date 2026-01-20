@@ -53,9 +53,12 @@ Yes, you can test video streaming locally! Follow these steps:
    ]
    ```
    
-   **Important:** The `PUT` method is required for presigned URL uploads. Without it, you'll get CORS errors when uploading videos.
+   **Important:** 
+   - The `PUT` method is required for presigned URL uploads. Without it, you'll get CORS errors when uploading videos.
+   - The `GET` method is required for video playback/streaming. Without it, videos won't play in the browser.
+   - Make sure `https://hi-ready-continued.vercel.app` is in the `AllowedOrigins` list for production.
    
-   **For Production:** Make sure to include your Vercel production domain (`https://hi-ready.vercel.app`) and preview domains (`https://*.vercel.app`).
+   **For Production:** Make sure to include your Vercel production domain (`https://hi-ready-continued.vercel.app`) and preview domains (`https://*.vercel.app`).
 
 ## Testing Steps
 
