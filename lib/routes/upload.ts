@@ -130,38 +130,69 @@ router.post('/complete', async (req: Request, res: Response) => {
     let taskIdFromTask: string | null = null;
 
     // C. Flask Integration (Single Flow)
+    console.log(`[Node] Checking Flask health at ${FLASK_BASE_URL}...`);
     const health = await tryFlask(() => flask.get('/health'), 'Flask health check');
-    if (health) {
+    if (!health) {
+      console.error(`❌ Flask server at ${FLASK_BASE_URL} is not reachable. Video will be uploaded but not analyzed by TwelveLabs.`);
+    } else {
+      console.log(`✅ Flask server is reachable. Starting video indexing...`);
+      
       // 1. Start Indexing
+      console.log(`[Node] Calling /api/index-video for lecture ${lectureId}...`);
       const indexResp = await tryFlask(
         () => flask.post('/api/index-video', { videoUrl: signedDownloadUrl, lectureId }),
         'Indexing trigger'
       );
-      videoIdFromTask = (indexResp as any)?.data?.video_id || null;
-      taskIdFromTask = (indexResp as any)?.data?.task_id || null;
+      
+      if (!indexResp) {
+        console.error('❌ Failed to start video indexing. Response was null.');
+      } else {
+        // The /api/index-video endpoint returns task_id, not video_id
+        taskIdFromTask = (indexResp as any)?.data?.task_id || (indexResp as any)?.task_id || null;
+        const indexStatus = (indexResp as any)?.data?.status || (indexResp as any)?.status;
+        
+        console.log(`[Node] Indexing response - status: ${indexStatus}, task_id: ${taskIdFromTask}`);
+        
+        if (!taskIdFromTask) {
+          console.error('❌ No task_id returned from indexing endpoint. Response:', JSON.stringify(indexResp, null, 2));
+        } else {
+          console.log(`✅ Indexing started with task_id: ${taskIdFromTask}`);
+        }
+      }
 
       // 2. Perform Segmentation (Wait for it)
       const flaskLong = axios.create({ baseURL: FLASK_BASE_URL, timeout: 600000 }); // 10 min timeout
       try {
-        console.log(`[Node] Requesting segmentation for ${lectureId}...`);
+        console.log(`[Node] Requesting segmentation for ${lectureId} with task_id: ${taskIdFromTask}...`);
         const segResp = await flaskLong.post('/api/segment-video', {
           videoUrl: signedDownloadUrl,
           lectureId,
-          videoId: videoIdFromTask,
+          videoId: videoIdFromTask, // This will be null, which is fine - segment-video will use task_id
           taskId: taskIdFromTask,
         });
         
-        segments = segResp.data?.segments || [];
-        fullAiData = segResp.data?.rawAiMetaData || null;
-        // LOG THIS IN YOUR TERMINAL
-        console.log("--- DATA VALIDATION ---");
-        console.log("Lecture ID:", lectureId);
-        console.log("Segments Length:", segments.length);
-        console.log("Full AI Data Type:", typeof fullAiData);
-        console.log("Full AI Data Content:", JSON.stringify(fullAiData).substring(0, 100));
-        console.log(`[Node] Received ${segments.length} segments.`);
+        if (segResp.data?.status === 'success') {
+          segments = segResp.data?.segments || [];
+          fullAiData = segResp.data?.rawAiMetaData || null;
+          videoIdFromTask = segResp.data?.video_id || videoIdFromTask;
+          
+          console.log("--- DATA VALIDATION ---");
+          console.log("Lecture ID:", lectureId);
+          console.log("Video ID:", videoIdFromTask);
+          console.log("Segments Length:", segments.length);
+          console.log("Full AI Data Type:", typeof fullAiData);
+          console.log("Full AI Data Content:", JSON.stringify(fullAiData).substring(0, 100));
+          console.log(`✅ Successfully received ${segments.length} segments from TwelveLabs.`);
+        } else {
+          console.error('❌ Segmentation failed. Response:', JSON.stringify(segResp.data, null, 2));
+        }
       } catch (segErr: any) {
         console.error('[Node] Segmentation error:', segErr.message);
+        if (segErr.response) {
+          console.error('[Node] Segmentation error response:', segErr.response.data);
+          console.error('[Node] Segmentation error status:', segErr.response.status);
+        }
+        console.error('[Node] Full error:', segErr);
       }
     }
 
