@@ -40,17 +40,20 @@ Yes, you can test video streaming locally! Follow these steps:
         "https://hiready.tech",
         "https://www.hiready.tech",
         "https://hi-ready.vercel.app",
+        "https://hi-ready-continued.vercel.app",
         "https://*.vercel.app",
         "http://localhost:5173",
         "http://localhost:3000"
       ],
-       "AllowedMethods": ["GET", "HEAD"],
+       "AllowedMethods": ["GET", "HEAD", "PUT"],
        "AllowedHeaders": ["*"],
        "ExposeHeaders": ["Content-Range", "Content-Length", "ETag", "Accept-Ranges"],
        "MaxAgeSeconds": 3600
      }
    ]
    ```
+   
+   **Important:** The `PUT` method is required for presigned URL uploads. Without it, you'll get CORS errors when uploading videos.
    
    **For Production:** Make sure to include your Vercel production domain (`https://hi-ready.vercel.app`) and preview domains (`https://*.vercel.app`).
 
